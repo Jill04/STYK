@@ -547,7 +547,7 @@ contract STYK is SafeMath,PriceConsumerV3{
             uint256 buyPrice_ = buyPrice();
             uint256 ethPrice =  safeMul(getLatestPrice(),1e18);
             uint256 inflation_factor = safeDiv(safeMul(buyPrice_,100),ethPrice);
-            if( inflation_factor == 2){
+            if( inflation_factor >= 2){
                 inflationTime = now;
                 return inflation_factor;
             }
@@ -576,7 +576,7 @@ contract STYK is SafeMath,PriceConsumerV3{
             uint256 inflationFactor = inflation();
             uint inflationHours = calculateInfaltionHours();
             
-            require(inflationFactor == 2,"ERR_INFLATION_FACTOR_NEED_TO_BE_2");
+            require(inflationFactor >= 2,"ERR_INFLATION_FACTOR_NEED_TO_BE_2_OR_MORE");
            
             require(inflationHours <= 72,"ERR_STAKE_HOURS_SHOULD_BE_LESS_THAN_72");
             
