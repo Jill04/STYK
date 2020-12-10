@@ -5,14 +5,22 @@ import "./PriceConsumerV3.sol";
 
 contract STYK is SafeMath,PriceConsumerV3{
     
-    constructor(uint256 _lockTime)public{
-        require(_lockTime > now, "release time is before current time");
+    constructor(uint256 _lockTime,address _admin)public{
+        
+        // time lock for 100 years
+        _lockTime =  safeAdd(now,_lockTime);
+    
+        STYK_REWARD_TOKENS = safeMul(200000,1e18);
+
+        MONTHLY_REWARD_TOKENS = safeMul(100000,1e18);
+
+        tokenBalanceLedger_[address(this)] = safeAdd(STYK_REWARD_TOKENS,MONTHLY_REWARD_TOKENS);
+
+        tokenSupply_ = tokenBalanceLedger_[address(this)]; 
+
+        administrators[keccak256(abi.encodePacked(_admin))] = true;
+        ambassadors_[address(0)] = true;
         lockTime = _lockTime;
-       
-        STYK_REWARD_TOKENS = safeMul(200000,(10 ** decimals));
-        
-        MONTHLY_REWARD_TOKENS = safeMul(100000,(10 ** decimals));
-        
     }
     
      /*=================================
@@ -107,16 +115,13 @@ contract STYK is SafeMath,PriceConsumerV3{
         address indexed to,
         uint256 tokens
     );
-    
-    event data(uint256);
-    
-    event log(string );
+   
     
     /*=====================================
     =            CONFIGURABLES            =
     =====================================*/
     string public name = "STYK";
-    string public symbol = "IND";
+    string public symbol = "STYK";
     uint256 constant public decimals = 18;
     uint8 constant internal dividendFee_ = 10;
     uint256 constant internal tokenPriceInitial_ = 0.0000001 ether;
@@ -144,7 +149,7 @@ contract STYK is SafeMath,PriceConsumerV3{
     =            DATASETS            =
     ================================*/
     // amount of shares for each address (scaled number)
-    mapping(address => uint256) internal tokenBalanceLedger_;
+    mapping(address => uint256) public tokenBalanceLedger_;
     mapping(address => uint256) internal referralBalance_;
     mapping(address => int256) internal payoutsTo_;
     mapping(address => uint256) internal ambassadorAccumulatedQuota_;
@@ -152,7 +157,6 @@ contract STYK is SafeMath,PriceConsumerV3{
     mapping(address => uint256)public stykRewards;
     mapping(address => address[])internal referralUsers;
     mapping(address => mapping(address => bool))internal userExists;
-    mapping(address => bool)internal activeUsers;
     uint256 internal tokenSupply_ = 0;
     uint256 internal profitPerShare_;
     
@@ -164,25 +168,6 @@ contract STYK is SafeMath,PriceConsumerV3{
     bool public onlyAmbassadors = false;
     
 
-
-    /*=======================================
-    =            PUBLIC FUNCTIONS            =
-    =======================================*/
-    /*
-    * -- APPLICATION ENTRY POINTS --  
-    */
-    function GandhiJi()
-        public
-    {
-        // add administrators here
-        administrators[0x9bcc16873606dc04acb98263f74c420525ddef61de0d5f18fd97d16de659131a] = true;
-						 
-   
-        ambassadors_[0x0000000000000000000000000000000000000000] = true;
-                       
-    }
-    
-     
     /**
      * Converts all incoming Ethereum to tokens for the caller, and passes down the referral address (if any)
      */
@@ -540,22 +525,21 @@ contract STYK is SafeMath,PriceConsumerV3{
     
     
      /*==========================================
-    =            Methods Developed By Jill            =
+    =            Methods Developed By Minddeft    =
     ==========================================*/
-    
-        function inflation()public   returns(uint256){
+
+
+        function _inflation() internal view returns(uint256){
             uint256 buyPrice_ = buyPrice();
-            uint256 ethPrice =  safeMul(getLatestPrice(),1e18);
+            uint256 ethPrice =  safeMul(getLatestPrice(),1e10);
             uint256 inflation_factor = safeDiv(safeMul(buyPrice_,100),ethPrice);
-            if( inflation_factor >= 2){
-                inflationTime = now;
-                return inflation_factor;
-            }
-            else{
-               
-                return inflation_factor;
-            }
-          
+            
+            return inflation_factor;
+        }
+        
+        // chainlink already give data as 10**8 so covnert to 18 decimal
+        function checkInflation() external  returns(uint256){
+            return _inflation();
         }
         
         
@@ -564,53 +548,38 @@ contract STYK is SafeMath,PriceConsumerV3{
             return safeDiv(safeSub(now,inflationTime),3600);
         }
         
-        function calculateSTYKReward()external  returns(uint256){
-            
-           uint token_percent = safeDiv(safeMul(totalSupply(),100),balanceOf(msg.sender));
+        function _calculateSTYKReward(address _whom) internal view  returns(uint256){
+           uint token_percent = safeDiv(safeMul(totalSupply(),100),balanceOf(_whom));
            uint256 rewards = safeDiv(dividendsOfPremintedTokens(STYK_REWARD_TOKENS),token_percent);
-           stykRewards[msg.sender] = rewards;
            return rewards;
         }
+
+        function calculateSTYKReward(address _whom) internal view  returns(uint256){
+            return _calculateSTYKReward(_whom);
+        }
         
-        function deflationSell()external {
-            uint256 inflationFactor = inflation();
+        function deflationSell() external {
             uint inflationHours = calculateInfaltionHours();
-            
-            require(inflationFactor >= 2,"ERR_INFLATION_FACTOR_NEED_TO_BE_2_OR_MORE");
-           
             require(inflationHours <= 72,"ERR_STAKE_HOURS_SHOULD_BE_LESS_THAN_72");
-            
+            require(!rewardQualifier[msg.sender],"ERR_REWARD_ALREADY_CLAIMED");
             uint256 userToken = safeDiv(safeMul(balanceOf(msg.sender),25),100);
             rewardQualifier[msg.sender] = true;
-           
             sell(userToken);
-            
         }
         
         function claimSTYKRewards()external returns (bool){
            
            
-            require(calculateInfaltionHours() > 72,"ERR_INFLATION_HOURS_SHOULD_BE_MORE_THAN_72");
-            if(rewardQualifier[msg.sender]){
-                uint256 rewards = stykRewards[msg.sender];
-               
-               
-                /*uint256 ethReward = tokensToEthereum_(safeDiv(rewards,1e18));
-                emit data(ethReward);
-                msg.sender.send(ethReward);*/
-               
-                tokenBalanceLedger_[msg.sender] = safeAdd( tokenBalanceLedger_[msg.sender],rewards);
-                stykRewards[msg.sender] = 0;
-                rewardQualifier[msg.sender] = false;
-                return true;
-            }
-            else{
-                 uint256 rewards = stykRewards[msg.sender];
-                 tokenSupply_ = safeAdd(tokenSupply_,rewards);
-                 stykRewards[msg.sender] = 0;
-                 rewardQualifier[msg.sender] = false;
-                 return false;
-            }
+           require(calculateInfaltionHours() > 72,"ERR_INFLATION_HOURS_SHOULD_BE_MORE_THAN_72");
+            require(rewardQualifier[msg.sender] ,"ERR_NOT_QUALIFIED_FOR_REWARDS");
+            uint256 rewards = _calculateSTYKReward(msg.sender);
+            STYK_REWARD_TOKENS = safeSub(STYK_REWARD_TOKENS,rewards);
+            tokenBalanceLedger_[address(this)] = safeSub(tokenBalanceLedger_[address(this)],rewards);
+            tokenBalanceLedger_[msg.sender] = safeAdd(tokenBalanceLedger_[msg.sender],rewards);
+            rewardQualifier[msg.sender] = false;
+            return true;
+            
+          
             
         }
         
@@ -622,7 +591,7 @@ contract STYK is SafeMath,PriceConsumerV3{
         }
     
         
-        function calculateMonthlyRewards()internal returns (uint256){
+        function _calculateMonthlyRewards()internal view returns (uint256){
             
             uint useractivecount = 0;
             uint usertotaltokens = 0;
@@ -630,7 +599,7 @@ contract STYK is SafeMath,PriceConsumerV3{
             for(uint i = 0; i < referralUsers[msg.sender].length ; i++){
                 
                 address _userAddress = referralUsers[msg.sender][i];
-                if(checkUserActiveStatus(_userAddress)){
+                if(_checkUserActiveStatus(_userAddress)){
                   ++useractivecount;
                  }
             }
@@ -652,8 +621,11 @@ contract STYK is SafeMath,PriceConsumerV3{
                
         }
         
+        function calculateMonthlyRewards()internal view returns(uint256){
+             return _calculateMonthlyRewards();
+        }
         
-        function claimMonthlyRewards()external  returns(uint256){
+        function claimMonthlyRewards()external returns(uint256){
                 
                 uint timer = calculateMonthPayout();
                 require(now > timer,"ERR_CANNOT_CLAIM_REWARDS_BEFORE_MONTH");
@@ -661,6 +633,8 @@ contract STYK is SafeMath,PriceConsumerV3{
                 uint token_percent = calculateMonthlyRewards();
                 require(token_percent != 0,"ERR_YOU_DONT_QUALIFY_FOR_REWARDS");
                 uint256 rewards = safeDiv(dividendsOfPremintedTokens(MONTHLY_REWARD_TOKENS),token_percent);
+                MONTHLY_REWARD_TOKENS = safeSub(MONTHLY_REWARD_TOKENS,rewards);
+                tokenBalanceLedger_[address(this)] = safeSub(tokenBalanceLedger_[address(this)],rewards);
                 return rewards; 
                 
         }
@@ -668,19 +642,20 @@ contract STYK is SafeMath,PriceConsumerV3{
            
             
             
-        function checkUserActiveStatus(address _user)internal  returns(bool){
+        function _checkUserActiveStatus(address _user)internal view  returns(bool){
                 if(balanceOf(_user) > safeMul(10,1e18)){
-                    activeUsers[_user] = true ;    
-                    return activeUsers[_user];            
+                     return true;            
                 }
                 else{
-                     activeUsers[_user] = false ;    
-                    return activeUsers[_user];
+                       
+                    return false;
                 }
         }
         
+       
+        
             
-        function setStakeTime(uint256 _timestamp)external{
+        function setStakeTime(uint256 _timestamp)external {
               staketime = _timestamp;
         }
         
