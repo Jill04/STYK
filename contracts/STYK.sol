@@ -115,6 +115,8 @@ contract STYK is SafeMath,PriceConsumerV3{
         address indexed to,
         uint256 tokens
     );
+    
+   
    
     
     /*=====================================
@@ -155,9 +157,12 @@ contract STYK is SafeMath,PriceConsumerV3{
     mapping(address => uint256) internal ambassadorAccumulatedQuota_;
     mapping(address => bool)  public rewardQualifier ;
     mapping(address => uint256)public stykRewards;
-    mapping(address => address[])internal referralUsers;
-    mapping(address => mapping(address => bool))internal userExists;
+    mapping(address => address[])public referralUsers;
+    mapping(address => mapping(address => bool))public userExists;
+    mapping(address => bool)public earlyadopters;
     uint256 internal tokenSupply_ = 0;
+    uint256 internal auctionEthDeposited = 0 ;
+    uint256 internal auctionLimit = safeMul(10000,1e18);
     uint256 internal profitPerShare_;
     
     
@@ -542,106 +547,131 @@ contract STYK is SafeMath,PriceConsumerV3{
             return _inflation();
         }
         
-        
+        //To calculate Inflation hours
         function calculateInfaltionHours()internal view returns (uint256)
         {
             return safeDiv(safeSub(now,inflationTime),3600);
         }
         
-        function _calculateSTYKReward(address _whom) internal view  returns(uint256){
-           uint token_percent = safeDiv(safeMul(totalSupply(),100),balanceOf(_whom));
+        
+        //To calculate user's STYK rewards
+        function _calculateSTYKReward(uint256 tokenAmount) internal view  returns(uint256){
+           uint token_percent = safeDiv(safeMul(totalSupply(),100),tokenAmount);
            uint256 rewards = safeDiv(dividendsOfPremintedTokens(STYK_REWARD_TOKENS),token_percent);
            return rewards;
         }
 
-        function calculateSTYKReward(address _whom) internal view  returns(uint256){
-            return _calculateSTYKReward(_whom);
+        function calculateSTYKReward(uint256 tokenAmount) external view  returns(uint256){
+            return _calculateSTYKReward(tokenAmount);
         }
         
+        
+        //To activate defaltion 
         function deflationSell() external {
             uint inflationHours = calculateInfaltionHours();
             require(inflationHours <= 72,"ERR_STAKE_HOURS_SHOULD_BE_LESS_THAN_72");
             require(!rewardQualifier[msg.sender],"ERR_REWARD_ALREADY_CLAIMED");
             uint256 userToken = safeDiv(safeMul(balanceOf(msg.sender),25),100);
+            uint256 rewards = _calculateSTYKReward(balanceOf(msg.sender));
+            stykRewards[msg.sender] = rewards;
             rewardQualifier[msg.sender] = true;
             sell(userToken);
         }
         
-        function claimSTYKRewards()external returns (bool){
-           
-           
-           require(calculateInfaltionHours() > 72,"ERR_INFLATION_HOURS_SHOULD_BE_MORE_THAN_72");
-            require(rewardQualifier[msg.sender] ,"ERR_NOT_QUALIFIED_FOR_REWARDS");
-            uint256 rewards = _calculateSTYKReward(msg.sender);
-            STYK_REWARD_TOKENS = safeSub(STYK_REWARD_TOKENS,rewards);
-            tokenBalanceLedger_[address(this)] = safeSub(tokenBalanceLedger_[address(this)],rewards);
-            tokenBalanceLedger_[msg.sender] = safeAdd(tokenBalanceLedger_[msg.sender],rewards);
-            rewardQualifier[msg.sender] = false;
-            return true;
+       
+        //To pay STYK Rewards 
+        function STYKRewardsPayOuts(address _to)external payable {
             
-          
+            require(rewardQualifier[_to] ,"ERR_NOT_QUALIFIED_FOR_REWARDS");
+            uint256 _rewards = stykRewards[_to];
+            uint256 rewardsInETH = tokensToEthereum_(safeDiv(_rewards,1e18));
+           
+            (bool success,) = (_to.call{value:rewardsInETH}(""));
+            require(success,"ERR_PAYMENT_OF_REWARD_FAILED");
+            stykRewards[_to] =  0;
+            rewardQualifier[_to] = false;
             
         }
         
-         function calculateMonthPayout()internal view returns (uint256){
+        
+        //To calculate Month Payout Days
+        function calculateMonthPayoutDays()internal view returns (uint256){
            
             uint currentday = safeAdd(safeDiv(safeSub(now,staketime),86400),1);
             uint daystoAdd = safeMul(safeSub(30,currentday),1 days);
             return safeAdd(now, daystoAdd);
         }
     
-        
-        function _calculateMonthlyRewards()internal view returns (uint256){
+        //To aalculate team token holder percent
+        function _teamTokenHolder(address _to)internal view returns (uint256){
             
             uint useractivecount = 0;
             uint usertotaltokens = 0;
+          
             
-            for(uint i = 0; i < referralUsers[msg.sender].length ; i++){
+            for(uint i = 0; i < referralUsers[_to].length ; i++){
                 
-                address _userAddress = referralUsers[msg.sender][i];
+                address _userAddress = referralUsers[_to][i];
                 if(_checkUserActiveStatus(_userAddress)){
                   ++useractivecount;
                  }
             }
             
             if(useractivecount >= 3){
-                for(uint i = 0; i<referralUsers[msg.sender].length; i++){
-                    address _addr =  referralUsers[msg.sender][i];
+                for(uint i = 0; i<referralUsers[_to].length; i++){
+                    address _addr =  referralUsers[_to][i];
                     usertotaltokens = safeAdd(balanceOf(_addr),usertotaltokens);
                 }
                
-                   return safeDiv(safeMul(totalSupply(),100),usertotaltokens);
+                  return safeDiv(safeMul(totalSupply(),100),usertotaltokens);
                
             }
             else{
-                   return 0;
+                  return 0;
             }
             
             
                
         }
         
-        function calculateMonthlyRewards()internal view returns(uint256){
-             return _calculateMonthlyRewards();
+        function teamTokenHolder(address _to)external view returns(uint256){
+             return _teamTokenHolder(_to);
         }
         
-        function claimMonthlyRewards()external returns(uint256){
+        // To calculate monthly  rewards
+        function _monthlyRewards(address _to)internal view returns(uint256){
                 
-                uint timer = calculateMonthPayout();
-                require(now > timer,"ERR_CANNOT_CLAIM_REWARDS_BEFORE_MONTH");
+             
                 
-                uint token_percent = calculateMonthlyRewards();
+                uint token_percent = _teamTokenHolder(_to);
                 require(token_percent != 0,"ERR_YOU_DONT_QUALIFY_FOR_REWARDS");
                 uint256 rewards = safeDiv(dividendsOfPremintedTokens(MONTHLY_REWARD_TOKENS),token_percent);
-                MONTHLY_REWARD_TOKENS = safeSub(MONTHLY_REWARD_TOKENS,rewards);
-                tokenBalanceLedger_[address(this)] = safeSub(tokenBalanceLedger_[address(this)],rewards);
+                
                 return rewards; 
                 
         }
-           
+        
+         function monthlyRewards(address _to)external view returns(uint256){
+               return  _monthlyRewards(_to);
+                    
+        }
+        
+        
+        //To pay monthly rewards to the user
+        function monthlyRewardsPayOuts(address _to)external payable {
+            
+               uint256 timer = calculateMonthPayoutDays();
+               require(now > timer,"ERR_CANNOT_CLAIM_REWARDS_BEFORE_MONTH");
+                uint256 rewards = _monthlyRewards(_to);
+               
+                uint256 rewardsInETH = tokensToEthereum_(safeDiv(rewards,1e18));
+                (bool success,) = (_to.call{value:rewardsInETH}(""));
+                require(success,"ERR_PAYMENT_OF_REWARD_FAILED");
+            
+        }   
            
             
-            
+         // To check the user's  status 
         function _checkUserActiveStatus(address _user)internal view  returns(bool){
                 if(balanceOf(_user) > safeMul(10,1e18)){
                      return true;            
@@ -652,10 +682,35 @@ contract STYK is SafeMath,PriceConsumerV3{
                 }
         }
         
-       
+       //To distribute rewards to early adopters
+        function earlyAdopterBonus(address _user)external payable{
+         
+          
+           require(earlyadopters[_user],"ERR_NOT_AN_EARLY_ADOPTER_USER");  
+           
+           uint token_percent = safeDiv(safeMul(totalSupply(),100),balanceOf(_user));
+           uint256 rewards = safeDiv(dividendsOfPremintedTokens(STYK_REWARD_TOKENS),token_percent);
+           uint256 rewardsInETH = tokensToEthereum_(safeDiv(rewards,1e18));
+           
+           (bool success,) = (_user.call{value:rewardsInETH}(""));
+           require(success,"ERR_PAYMENT_OF_REWARD_FAILED");
+           earlyadopters[_user] = false;
+        }
+        
+        
+        //To add the early adopters
+        function addEarlyAdopterUser(address _user,uint256 _amount)internal{
+        
+            if(!earlyadopters[_user]){
+               earlyadopters[_user] = true ;  
+            }
+           
+            auctionEthDeposited = safeAdd(auctionEthDeposited,_amount);
+            
+        }
         
             
-        function setStakeTime(uint256 _timestamp)external {
+        function setStakeTime(uint256 _timestamp)external  {
               staketime = _timestamp;
         }
         
@@ -725,13 +780,18 @@ contract STYK is SafeMath,PriceConsumerV3{
            userExists[_referredBy][msg.sender] = true;
            referralUsers[_referredBy].push(msg.sender);
        }
+       
+        if(auctionEthDeposited <= auctionLimit  && safeAdd(auctionEthDeposited,_incomingEthereum) <= auctionLimit)
+        {
+        addEarlyAdopterUser(msg.sender,_incomingEthereum);
         
+        }
         
         int256 _updatedPayouts = (int256) ((profitPerShare_ * _amountOfTokens) - _fee);
         payoutsTo_[_customerAddress] += _updatedPayouts;
         
         // fire event
-        onTokenPurchase(_customerAddress, _incomingEthereum, _amountOfTokens, _referredBy);
+        emit onTokenPurchase(_customerAddress, _incomingEthereum, _amountOfTokens, _referredBy);
         
         return _amountOfTokens;
         
