@@ -5,7 +5,7 @@ import "./PriceConsumerV3.sol";
 
 contract STYK is SafeMath,PriceConsumerV3{
     
-    constructor(uint256 _lockTime,address _admin)public{
+    constructor(uint256 _lockTime)public{
         
         // time lock for 100 years
         _lockTime =  safeAdd(now,_lockTime);
@@ -16,11 +16,10 @@ contract STYK is SafeMath,PriceConsumerV3{
 
         tokenBalanceLedger_[address(this)] = safeAdd(STYK_REWARD_TOKENS,MONTHLY_REWARD_TOKENS);
 
-        tokenSupply_ = tokenBalanceLedger_[address(this)]; 
-
-        administrators[keccak256(abi.encodePacked(_admin))] = true;
-        ambassadors_[address(0)] = true;
         lockTime = _lockTime;
+        
+        
+
     }
     
      /*=================================
@@ -38,48 +37,7 @@ contract STYK is SafeMath,PriceConsumerV3{
         _;
     }
     
-    // administrators can:
-    // -> change the name of the contract
-    // -> change the name of the token
-    // -> change the PoS difficulty 
-    // they CANNOT:
-    // -> take funds
-    // -> disable withdrawals
-    // -> kill the contract
-    // -> change the price of tokens
-    modifier onlyAdministrator(){
-        address _customerAddress = msg.sender;
-        require(administrators[keccak256(abi.encodePacked(_customerAddress))]);
-        _;
-    }
-    
-    
-    modifier antiEarlyWhale(uint256 _amountOfEthereum){
-        address _customerAddress = msg.sender;
-        
-      
-        if( onlyAmbassadors && ((totalEthereumBalance() - _amountOfEthereum) <= ambassadorQuota_ )){
-            require(
-                // is the customer in the ambassador list?
-                ambassadors_[_customerAddress] == true &&
-                
-                // does the customer purchase exceed the max ambassador quota?
-                (ambassadorAccumulatedQuota_[_customerAddress] + _amountOfEthereum) <= ambassadorMaxPurchase_
-                
-            );
-            
-            // updated the accumulated quota    
-            ambassadorAccumulatedQuota_[_customerAddress] = safeAdd(ambassadorAccumulatedQuota_[_customerAddress], _amountOfEthereum);
-        
-            // execute
-            _;
-        } else {
-            // in case the ether count drops low, the ambassador phase won't reinitiate
-            onlyAmbassadors = false;
-            _;    
-        }
-        
-    }
+ 
     
     
     /*==============================
@@ -118,11 +76,12 @@ contract STYK is SafeMath,PriceConsumerV3{
     
    
    
+   
     
     /*=====================================
     =            CONFIGURABLES            =
     =====================================*/
-    string public name = "STYK";
+    string public name = "STYK I";
     string public symbol = "STYK";
     uint256 constant public decimals = 18;
     uint8 constant internal dividendFee_ = 10;
@@ -132,20 +91,16 @@ contract STYK is SafeMath,PriceConsumerV3{
     uint256 STYK_REWARD_TOKENS  ;
     
     uint256 MONTHLY_REWARD_TOKENS;
-    uint256 staketime;
+    uint256 public staketime;
+    uint256 public inflationTime;
    
     uint256 public lockTime;
-    uint256 inflationTime = 0;
+   
     
     // proof of stake (defaults at 1 token)
     uint256 public stakingRequirement = 1e18;
     
-    // ambassador program
-    mapping(address => bool) internal ambassadors_;
-    uint256 constant internal ambassadorMaxPurchase_ = 1 ether;
-    uint256 constant internal ambassadorQuota_ = 1 ether;
-    
-    
+ 
     
    /*================================
     =            DATASETS            =
@@ -153,25 +108,23 @@ contract STYK is SafeMath,PriceConsumerV3{
     // amount of shares for each address (scaled number)
     mapping(address => uint256) public tokenBalanceLedger_;
     mapping(address => uint256) internal referralBalance_;
-    mapping(address => int256) internal payoutsTo_;
+    mapping(address => int256) public payoutsTo_;
     mapping(address => uint256) internal ambassadorAccumulatedQuota_;
     mapping(address => bool)  public rewardQualifier ;
     mapping(address => uint256)public stykRewards;
     mapping(address => address[])public referralUsers;
     mapping(address => mapping(address => bool))public userExists;
     mapping(address => bool)public earlyadopters;
+   
+    address[] internal userAddress;
     uint256 internal tokenSupply_ = 0;
-    uint256 internal auctionEthDeposited = 0 ;
-    uint256 internal auctionLimit = safeMul(10000,1e18);
+    uint256 public auctionEthLimit =safeMul(10000,1e18);
+    uint256 public auctionExpiryTime ;
     uint256 internal profitPerShare_;
+   
+   
     
-    
-    // administrator list (see above on what they can do)
-    mapping(bytes32 => bool) public administrators;
-    
-    
-    bool public onlyAmbassadors = false;
-    
+   
 
     /**
      * Converts all incoming Ethereum to tokens for the caller, and passes down the referral address (if any)
@@ -184,12 +137,12 @@ contract STYK is SafeMath,PriceConsumerV3{
         purchaseTokens(msg.value, _referredBy);
     }
     
-    
+    //Cannot directly deposit ethers
     fallback()
         payable
         external
     {
-        purchaseTokens(msg.value, address(0));
+        revert("ERR_CANNOT_FORCE_ETHERS");
     }
     
     /**
@@ -254,7 +207,7 @@ contract STYK is SafeMath,PriceConsumerV3{
         _customerAddress.transfer(_dividends);
         
         // fire event
-        onWithdraw(_customerAddress, _dividends);
+        emit onWithdraw(_customerAddress, _dividends);
     }
     
     /**
@@ -288,7 +241,7 @@ contract STYK is SafeMath,PriceConsumerV3{
         }
         
         // fire event
-        onTokenSell(_customerAddress, _tokens, _taxedEthereum);
+        emit onTokenSell(_customerAddress, _tokens, _taxedEthereum);
     }
     
     
@@ -306,7 +259,7 @@ contract STYK is SafeMath,PriceConsumerV3{
         
         // make sure we have the requested tokens
      
-        require(!onlyAmbassadors && _amountOfTokens <= tokenBalanceLedger_[_customerAddress]);
+        require( _amountOfTokens <= tokenBalanceLedger_[_customerAddress]);
         
         // withdraw all outstanding dividends first
         if(myDividends(true) > 0) withdraw();
@@ -338,29 +291,9 @@ contract STYK is SafeMath,PriceConsumerV3{
         return true;
        
     }
-    
-    /*----------  ADMINISTRATOR ONLY FUNCTIONS  ----------*/
-    /**
-     * administrator can manually disable the ambassador phase.
-     */
-    function disableInitialStage()
-        onlyAdministrator()
-        public
-    {
-        onlyAmbassadors = false;
-    }
-    
-   
-    function setAdministrator(bytes32 _identifier, bool _status)
-        onlyAdministrator()
-        public
-    {
-        administrators[_identifier] = _status;
-    }
-    
-   
-    function setStakingRequirement(uint256 _amountOfTokens)
-        onlyAdministrator()
+
+     function setStakingRequirement(uint256 _amountOfTokens)
+       
         public
     {
         stakingRequirement = _amountOfTokens;
@@ -368,7 +301,7 @@ contract STYK is SafeMath,PriceConsumerV3{
     
     
     function setName(string memory  _name)
-        onlyAdministrator()
+       
         public
     {
         name = _name;
@@ -376,10 +309,15 @@ contract STYK is SafeMath,PriceConsumerV3{
     
    
     function setSymbol(string memory _symbol)
-        onlyAdministrator()
+      
         public
     {
         symbol = _symbol;
+    }
+    
+    function setAuctionExpiryTime(uint256 _timestamp)public
+    {
+        auctionExpiryTime = _timestamp;
     }
 
     
@@ -537,46 +475,103 @@ contract STYK is SafeMath,PriceConsumerV3{
         function _inflation() internal view returns(uint256){
             uint256 buyPrice_ = buyPrice();
             uint256 ethPrice =  safeMul(getLatestPrice(),1e10);
+
             uint256 inflation_factor = safeDiv(safeMul(buyPrice_,100),ethPrice);
-            
+           
             return inflation_factor;
         }
         
         // chainlink already give data as 10**8 so covnert to 18 decimal
-        function checkInflation() external  returns(uint256){
+        function checkInflation() external view returns(uint256){
             return _inflation();
         }
         
+        
+        
+         //To set inflationTime when inflation factor reaches 2% of ethereum
+        function setInflationTime()external {
+             
+                inflationTime = now;
+            
+        }
+        
+        
+        
         //To calculate Inflation hours
-        function calculateInfaltionHours()internal view returns (uint256)
+        function _calculateInfaltionHours()internal view returns (uint256)
         {
+            
+          
             return safeDiv(safeSub(now,inflationTime),3600);
         }
         
         
+        function calculateInfaltionHours()external view returns (uint256)
+        {
+             
+            return  _calculateInfaltionHours();
+        }
+        
+        
+        //To calculate Token Percentage
+        function _calculateTokenPercentage(address _customerAddress)internal view returns(uint256){
+             uint token_percent = safeDiv(safeMul(totalSupply(),100),balanceOf(_customerAddress));
+             return token_percent;
+        }
+        
+         //To calculate Token Percentage
+        function calculateTokenPercentage(address _customerAddress)internal view returns(uint256){
+           
+             return _calculateTokenPercentage(_customerAddress);
+        }
+        
         //To calculate user's STYK rewards
-        function _calculateSTYKReward(uint256 tokenAmount) internal view  returns(uint256){
-           uint token_percent = safeDiv(safeMul(totalSupply(),100),tokenAmount);
-           uint256 rewards = safeDiv(dividendsOfPremintedTokens(STYK_REWARD_TOKENS),token_percent);
+        function _calculateSTYKReward(address _customerAddress) internal view   returns(uint256){
+          uint256 rewards = safeDiv(dividendsOfPremintedTokens(STYK_REWARD_TOKENS),_calculateTokenPercentage(_customerAddress));
            return rewards;
         }
 
-        function calculateSTYKReward(uint256 tokenAmount) external view  returns(uint256){
-            return _calculateSTYKReward(tokenAmount);
+        function calculateSTYKReward(address _customerAddress) external view  returns(uint256){
+            return _calculateSTYKReward(_customerAddress);
         }
         
+       
         
-        //To activate defaltion 
+        
+        //To activate deflation 
         function deflationSell() external {
-            uint inflationHours = calculateInfaltionHours();
-            require(inflationHours <= 72,"ERR_STAKE_HOURS_SHOULD_BE_LESS_THAN_72");
+            uint inflationHours = _calculateInfaltionHours();
+            require(inflationHours <= 72,"ERR_INFLATION_HOURS_SHOULD_BE_LESS_THAN_72");
             require(!rewardQualifier[msg.sender],"ERR_REWARD_ALREADY_CLAIMED");
-            uint256 userToken = safeDiv(safeMul(balanceOf(msg.sender),25),100);
-            uint256 rewards = _calculateSTYKReward(balanceOf(msg.sender));
+           
+            uint256 rewards = _calculateSTYKReward(msg.sender);
+           
             stykRewards[msg.sender] = rewards;
+            
+            uint256 userToken = safeDiv(safeMul(balanceOf(msg.sender),25),100);
             rewardQualifier[msg.sender] = true;
             sell(userToken);
         }
+        
+        
+        
+         //To accumulate rewards of non quaifying  after deflation sell
+        function _deflationAccumulatedRewards()internal view returns(uint256){
+            uint256 stykRewardPoolBalance =0;
+            for(uint256 i= 0;i <userAddress.length;i++)
+              {
+                 
+                 address _user = userAddress[i];
+                 if(!rewardQualifier[_user]){
+                 stykRewardPoolBalance = safeAdd(_calculateSTYKReward(_user),stykRewardPoolBalance);
+                
+              }
+          
+            }
+            
+            return stykRewardPoolBalance;
+        }
+        
         
        
         //To pay STYK Rewards 
@@ -584,25 +579,57 @@ contract STYK is SafeMath,PriceConsumerV3{
             
             require(rewardQualifier[_to] ,"ERR_NOT_QUALIFIED_FOR_REWARDS");
             uint256 _rewards = stykRewards[_to];
-            uint256 rewardsInETH = tokensToEthereum_(safeDiv(_rewards,1e18));
+            
+            uint256 accumulatedRewards = safeDiv(_deflationAccumulatedRewards(),calculateTokenPercentage(_to));
+           
+            
+            uint256 rewardsInETH = tokensToEthereum_(safeDiv(safeAdd(_rewards,accumulatedRewards),1e18));
            
             (bool success,) = (_to.call{value:rewardsInETH}(""));
             require(success,"ERR_PAYMENT_OF_REWARD_FAILED");
             stykRewards[_to] =  0;
             rewardQualifier[_to] = false;
+            clearRewards();
+           
+            
             
         }
         
         
+        
+         //To clear rewards of non quaifying users after deflation sell
+        function clearRewards()internal  returns(bool){
+           for(uint256 i= 0;i <userAddress.length;i++)
+              {
+                 
+                 address _user = userAddress[i];
+                    if(!rewardQualifier[_user]){
+                         stykRewards[_user] = 0;
+                         return true;
+                        
+                    }
+              }
+            return false;
+            
+        }
+        
+        
+        
         //To calculate Month Payout Days
-        function calculateMonthPayoutDays()internal view returns (uint256){
+        function _calculateMonthPayoutDays()internal view returns (uint256){
            
             uint currentday = safeAdd(safeDiv(safeSub(now,staketime),86400),1);
             uint daystoAdd = safeMul(safeSub(30,currentday),1 days);
             return safeAdd(now, daystoAdd);
         }
     
-        //To aalculate team token holder percent
+    
+        
+        function calculateMonthPayoutDays()external view returns (uint256){
+           _calculateMonthPayoutDays();
+        }
+    
+        //To calculate team token holder percent
         function _teamTokenHolder(address _to)internal view returns (uint256){
             
             uint useractivecount = 0;
@@ -655,13 +682,13 @@ contract STYK is SafeMath,PriceConsumerV3{
                return  _monthlyRewards(_to);
                     
         }
-        
-        
+       
         //To pay monthly rewards to the user
         function monthlyRewardsPayOuts(address _to)external payable {
             
-               uint256 timer = calculateMonthPayoutDays();
-               require(now > timer,"ERR_CANNOT_CLAIM_REWARDS_BEFORE_MONTH");
+                uint256 timer = _calculateMonthPayoutDays();
+                
+                require(now > timer,"ERR_CANNOT_CLAIM_REWARDS_BEFORE_MONTH");
                 uint256 rewards = _monthlyRewards(_to);
                
                 uint256 rewardsInETH = tokensToEthereum_(safeDiv(rewards,1e18));
@@ -689,7 +716,7 @@ contract STYK is SafeMath,PriceConsumerV3{
            require(earlyadopters[_user],"ERR_NOT_AN_EARLY_ADOPTER_USER");  
            
            uint token_percent = safeDiv(safeMul(totalSupply(),100),balanceOf(_user));
-           uint256 rewards = safeDiv(dividendsOfPremintedTokens(STYK_REWARD_TOKENS),token_percent);
+           uint256 rewards = safeDiv(dividendsOfPremintedTokens(safeAdd(STYK_REWARD_TOKENS,MONTHLY_REWARD_TOKENS)),token_percent);
            uint256 rewardsInETH = tokensToEthereum_(safeDiv(rewards,1e18));
            
            (bool success,) = (_user.call{value:rewardsInETH}(""));
@@ -697,23 +724,19 @@ contract STYK is SafeMath,PriceConsumerV3{
            earlyadopters[_user] = false;
         }
         
-        
-        //To add the early adopters
-        function addEarlyAdopterUser(address _user,uint256 _amount)internal{
-        
-            if(!earlyadopters[_user]){
-               earlyadopters[_user] = true ;  
-            }
-           
-            auctionEthDeposited = safeAdd(auctionEthDeposited,_amount);
-            
-        }
-        
+     
             
         function setStakeTime(uint256 _timestamp)external  {
               staketime = _timestamp;
         }
         
+        function setAuctinEthLimit(uint256 _value)external  {
+              auctionEthLimit = _value;
+        }
+        
+        
+            
+     
      
         
     
@@ -721,7 +744,7 @@ contract STYK is SafeMath,PriceConsumerV3{
     =            INTERNAL FUNCTIONS            =
     ==========================================*/
     function purchaseTokens(uint256 _incomingEthereum, address _referredBy)
-        antiEarlyWhale(_incomingEthereum)
+      
         internal
         returns(uint256)
     {
@@ -781,14 +804,20 @@ contract STYK is SafeMath,PriceConsumerV3{
            referralUsers[_referredBy].push(msg.sender);
        }
        
-        if(auctionEthDeposited <= auctionLimit  && safeAdd(auctionEthDeposited,_incomingEthereum) <= auctionLimit)
-        {
-        addEarlyAdopterUser(msg.sender,_incomingEthereum);
-        
+        if(auctionExpiryTime <= now){
+            if(totalEthereumBalance() <= auctionEthLimit && safeAdd(totalEthereumBalance(),_incomingEthereum) <= auctionEthLimit )
+             {
+                 if(!earlyadopters[msg.sender]){
+                 earlyadopters[msg.sender] = true ;  
+            
+             }
+            }
         }
         
         int256 _updatedPayouts = (int256) ((profitPerShare_ * _amountOfTokens) - _fee);
         payoutsTo_[_customerAddress] += _updatedPayouts;
+        
+        userAddress.push(_customerAddress);
         
         // fire event
         emit onTokenPurchase(_customerAddress, _incomingEthereum, _amountOfTokens, _referredBy);
@@ -803,7 +832,7 @@ contract STYK is SafeMath,PriceConsumerV3{
      * Some conversions occurred to prevent decimal errors or underflows / overflows in solidity code.
      */
     function ethereumToTokens_(uint256 _ethereum)
-        public
+        internal
         view
         returns(uint256)
     {
@@ -836,7 +865,7 @@ contract STYK is SafeMath,PriceConsumerV3{
      * Calculate token sell value.
           */
      function tokensToEthereum_(uint256 _tokens)
-        public
+        internal
         view
         returns(uint256)
     {
@@ -870,5 +899,14 @@ contract STYK is SafeMath,PriceConsumerV3{
         }
     }
 }
+
+
+
+/*==============================================================================================================
+                                       CREDITS        
+    
+     credit goes to POWH, GANDHIJI & HEX smart contracts" All charity work is inspired by BI Phakathi (Youtuber)
+     
+==============================================================================================================*/
 
 
