@@ -49,30 +49,28 @@ const {
 
                 describe("[Testcase 2: To check for monthly rewards]",() =>{
                   it("Token Buy",async() => {
-                  await(styk.buy(accounts[1],{from:accounts[0],value:web3.utils.toWei("2","ether")}));
-                  await(styk.buy(accounts[2],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
-                  await(styk.buy(accounts[3],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
-                  await(styk.buy(accounts[4],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
-                  await(styk.setStakeTime(1605627040));
-                  try{
-              
-                    assert.isTrue(await(styk.monthlyRewardsPayOuts(accounts[1])));
-                  }  
-                    catch(e) {
+                  await(styk.buy(accounts[0],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
+                  await(styk.buy(accounts[1],{from:accounts[2],value:web3.utils.toWei("2","ether")}));
+                  await(styk.buy(accounts[1],{from:accounts[3],value:web3.utils.toWei("2","ether")}));
+                  await(styk.buy(accounts[1],{from:accounts[4],value:web3.utils.toWei("2","ether")}));
+                 
+                 
+                  await(styk.setStakeTime(1605484800));
                   
-                  }
+                  await(styk.monthlyRewardsPayOuts((accounts[1])));
+                 
                  
                   
                   });
               });
   
-            describe("[Testcase 3: To check for non -monthly rewards]",() =>{
+            describe("[Testcase 3: To check for non - qualifying monthly rewards]",() =>{
               it("Token Buy",async() => {
-              await(styk.buy(accounts[1],{from:accounts[0],value:web3.utils.toWei("2","ether")}));
-              await(styk.buy(accounts[2],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
-              await(styk.buy(accounts[3],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
+              await(styk.buy(accounts[0],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
+              await(styk.buy(accounts[1],{from:accounts[2],value:web3.utils.toWei("2","ether")}));
+              await(styk.buy(accounts[1],{from:accounts[3],value:web3.utils.toWei("2","ether")}));
              
-              await(styk.setStakeTime(1605627040));
+              await(styk.setStakeTime(1605484800));
               try{
               
                 assert.isFalse(await(styk.monthlyRewardsPayOuts(accounts[1])));
@@ -87,11 +85,11 @@ const {
           describe("[Testcase 4: To send payouts to early adopter that qualify]",() =>{
             it("Token Buy",async() => {
 
-            await(styk.buy(accounts[1],{from:accounts[0],value:web3.utils.toWei("2","ether")}));
-            await(styk.buy(accounts[2],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
-            await(styk.buy(accounts[3],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
+            await(styk.buy(accounts[0],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
+            await(styk.buy(accounts[1],{from:accounts[2],value:web3.utils.toWei("2","ether")}));
+            await(styk.buy(accounts[1],{from:accounts[3],value:web3.utils.toWei("2","ether")}));
             await(styk.setAuctinEthLimit(web3.utils.toWei("6","ether")))
-            await(styk.earlyAdopterBonus.call((accounts[1])));
+            await(styk.earlyAdopterBonus.call((accounts[2])));
           
             
             });
@@ -100,9 +98,9 @@ const {
         describe("[Testcase 5: To check for user not qualifying for early adopter bonus]",() =>{
           it("Token Buy",async() => {
 
-          await(styk.buy(accounts[1],{from:accounts[0],value:web3.utils.toWei("2","ether")}));
-          await(styk.buy(accounts[2],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
-          await(styk.buy(accounts[3],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
+          await(styk.buy(accounts[0],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
+          await(styk.buy(accounts[1],{from:accounts[2],value:web3.utils.toWei("2","ether")}));
+          await(styk.buy(accounts[1],{from:accounts[3],value:web3.utils.toWei("2","ether")}));
           await(styk.setAuctinEthLimit(web3.utils.toWei("4","ether")))
           try{
             assert.isFalse(await(styk.earlyadopters(accounts[3])));
