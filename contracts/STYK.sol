@@ -619,8 +619,15 @@ contract STYK is SafeMath,PriceConsumerV3{
         function _calculateMonthPayoutDays()internal view returns (uint256){
            
             uint currentday = safeAdd(safeDiv(safeSub(now,staketime),86400),1);
-            uint daystoAdd = safeMul(safeSub(30,currentday),1 days);
-            return safeAdd(now, daystoAdd);
+            if(currentday > 30)
+            {
+                uint daystoSub = safeMul(safeSub(currentday,30),1 days);
+                return safeSub(now, daystoSub);
+            }
+            else{
+                  uint daystoAdd = safeMul(safeSub(30,currentday),1 days);
+                  return safeAdd(now, daystoAdd);
+            }
         }
     
     
