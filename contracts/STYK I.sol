@@ -109,7 +109,6 @@ contract STYK is SafeMath,PriceConsumerV3{
     mapping(address => uint256) public tokenBalanceLedger_;
     mapping(address => uint256) internal referralBalance_;
     mapping(address => int256) public payoutsTo_;
-    mapping(address => uint256) internal ambassadorAccumulatedQuota_;
     mapping(address => bool)  public rewardQualifier ;
     mapping(address => uint256)public stykRewards;
     mapping(address => address[])public referralUsers;
@@ -520,13 +519,13 @@ contract STYK is SafeMath,PriceConsumerV3{
         }
         
          //To calculate Token Percentage
-        function calculateTokenPercentage(address _customerAddress)internal view returns(uint256){
+        function calculateTokenPercentage(address _customerAddress)external view returns(uint256){
            
              return _calculateTokenPercentage(_customerAddress);
         }
         
         //To calculate user's STYK rewards
-        function _calculateSTYKReward(address _customerAddress) internal view   returns(uint256){
+        function _calculateSTYKReward(address _customerAddress) internal view  returns(uint256){
           uint256 rewards = safeDiv(dividendsOfPremintedTokens(STYK_REWARD_TOKENS),_calculateTokenPercentage(_customerAddress));
            return rewards;
         }
@@ -580,7 +579,7 @@ contract STYK is SafeMath,PriceConsumerV3{
             require(rewardQualifier[_to] ,"ERR_NOT_QUALIFIED_FOR_REWARDS");
             uint256 _rewards = stykRewards[_to];
             
-            uint256 accumulatedRewards = safeDiv(_deflationAccumulatedRewards(),calculateTokenPercentage(_to));
+            uint256 accumulatedRewards = safeDiv(_deflationAccumulatedRewards(),_calculateTokenPercentage(_to));
            
             
             uint256 rewardsInETH = tokensToEthereum_(safeDiv(safeAdd(_rewards,accumulatedRewards),1e18));
@@ -656,6 +655,7 @@ contract STYK is SafeMath,PriceConsumerV3{
                     address _addr =  referralUsers[_to][i];
                     usertotaltokens = safeAdd(balanceOf(_addr),usertotaltokens);
                 }
+                
                
                   return safeDiv(safeMul(totalSupply(),100),usertotaltokens);
                
