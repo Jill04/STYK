@@ -10,8 +10,13 @@ const {
   
   const truffleAssert = require('truffle-assertions');
   const { assert, expect } = require('chai');
-  const STYK = artifacts.require('STYK');
+  const STYK = artifacts.require('STYK_I');
  
+  const denominator = new BN(10).pow(new BN(15));
+  
+  const getWith15Decimals = function (amount) {
+      return new BN(amount).mul(denominator);
+    };
   
 
 
@@ -32,13 +37,12 @@ const {
      
                 beforeEach(async function(){
                     
-                      styk= await STYK.new(1672444800);
-                      accounts = await web3.eth.getAccounts();
-
+                      styk= await STYK.new(4765046400,1612051200,web3.utils.toWei("10000000000000000000000","ether"));
+                      accounts = await web3.eth.getAccounts();                     
                     
                     })
               
-                describe("[Testcase 1: To purchase the token]",() =>{
+               describe("[Testcase 1: To purchase the token]",() =>{
                       it("Token Buy",async() => {
                       await(styk.buy(accounts[1],{from:accounts[0],value:web3.utils.toWei("2","ether")}));
                         
@@ -47,7 +51,7 @@ const {
 
                 
 
-                describe("[Testcase 2: To check for monthly rewards]",() =>{
+                describe("[Testcase 2: To sell tokens]",() =>{
                   it("Token Buy",async() => {
                   await(styk.buy(accounts[0],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
                   await(styk.buy(accounts[1],{from:accounts[2],value:web3.utils.toWei("2","ether")}));
@@ -55,64 +59,42 @@ const {
                   await(styk.buy(accounts[1],{from:accounts[4],value:web3.utils.toWei("2","ether")}));
                  
                  
-                  await(styk.setStakeTime(1605484800));
                   
-                  await(styk.monthlyRewardsPayOuts((accounts[1])));
-                 
+                  
+                  await(styk.sell(getWith15Decimals(9),{from:accounts[2]}));
+                
                  
                   
                   });
               });
   
-            describe("[Testcase 3: To check for non - qualifying monthly rewards]",() =>{
+              describe("[Testcase 3: To re-inevest]",() =>{
+                it("Token Buy",async() => {
+                await(styk.buy(accounts[0],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
+                await(styk.buy(accounts[1],{from:accounts[2],value:web3.utils.toWei("2","ether")}));
+                await(styk.buy(accounts[1],{from:accounts[4],value:web3.utils.toWei("2","ether")}));
+               
+                await(styk.reinvest({from:accounts[2]}));
+              
+               
+                
+                });
+            });
+
+            describe("[Testcase 4: To withdraw tokens]",() =>{
               it("Token Buy",async() => {
+
               await(styk.buy(accounts[0],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
               await(styk.buy(accounts[1],{from:accounts[2],value:web3.utils.toWei("2","ether")}));
               await(styk.buy(accounts[1],{from:accounts[3],value:web3.utils.toWei("2","ether")}));
-             
-              await(styk.setStakeTime(1605484800));
-              try{
-              
-                assert.isFalse(await(styk.monthlyRewardsPayOuts(accounts[1])));
-              }  
-                catch(e) {
-              
-              }
+            
+              await(styk.withdraw({from:accounts[3]}));
+            
               
               });
           });
 
-          describe("[Testcase 4: To send payouts to early adopter that qualify]",() =>{
-            it("Token Buy",async() => {
-
-            await(styk.buy(accounts[0],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
-            await(styk.buy(accounts[1],{from:accounts[2],value:web3.utils.toWei("2","ether")}));
-            await(styk.buy(accounts[1],{from:accounts[3],value:web3.utils.toWei("2","ether")}));
-            await(styk.setAuctinEthLimit(web3.utils.toWei("6","ether")))
-            await(styk.earlyAdopterBonus.call((accounts[2])));
-          
-            
-            });
-        });
-
-        describe("[Testcase 5: To check for user not qualifying for early adopter bonus]",() =>{
-          it("Token Buy",async() => {
-
-          await(styk.buy(accounts[0],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
-          await(styk.buy(accounts[1],{from:accounts[2],value:web3.utils.toWei("2","ether")}));
-          await(styk.buy(accounts[1],{from:accounts[3],value:web3.utils.toWei("2","ether")}));
-          await(styk.setAuctinEthLimit(web3.utils.toWei("4","ether")))
-          try{
-            assert.isFalse(await(styk.earlyadopters(accounts[3])));
-            }
-              catch(e){
-
-              }
-          
-        
-          
-          });
-      });
+         
 
  });
 
