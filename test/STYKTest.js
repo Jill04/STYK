@@ -56,16 +56,9 @@ const {
                   await(styk.buy(accounts[0],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
                   await(styk.buy(accounts[1],{from:accounts[2],value:web3.utils.toWei("2","ether")}));
                   await(styk.buy(accounts[1],{from:accounts[3],value:web3.utils.toWei("2","ether")}));
-                  await(styk.buy(accounts[1],{from:accounts[4],value:web3.utils.toWei("2","ether")}));
-                 
-                 
-                  
-                  
+                  await(styk.buy(accounts[1],{from:accounts[4],value:web3.utils.toWei("2","ether")}))
                   await(styk.sell(getWith15Decimals(9),{from:accounts[2]}));
-                
-                 
-                  
-                  });
+                 });
               });
   
               describe("[Testcase 3: To re-inevest]",() =>{
@@ -73,11 +66,8 @@ const {
                 await(styk.buy(accounts[0],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
                 await(styk.buy(accounts[1],{from:accounts[2],value:web3.utils.toWei("2","ether")}));
                 await(styk.buy(accounts[1],{from:accounts[4],value:web3.utils.toWei("2","ether")}));
-               
                 await(styk.reinvest({from:accounts[2]}));
               
-               
-                
                 });
             });
 
@@ -87,14 +77,9 @@ const {
               await(styk.buy(accounts[0],{from:accounts[1],value:web3.utils.toWei("2","ether")}));
               await(styk.buy(accounts[1],{from:accounts[2],value:web3.utils.toWei("2","ether")}));
               await(styk.buy(accounts[1],{from:accounts[3],value:web3.utils.toWei("2","ether")}));
-            
-              await(styk.withdraw({from:accounts[3]}));
-            
-              
+              await(styk.withdraw({from:accounts[3]})); 
               });
           });
-
-         
 
  });
 
