@@ -26,9 +26,6 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         
         auctionEthLimit = _auctionLimit;
        
-        
-        
-
     }
     
      /*=================================
@@ -136,9 +133,6 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
     uint256 public auctionExpiryTime ;
     uint256 internal profitPerShare_;
    
-   
-    
-   
 
     /**
      * Converts all incoming Ethereum to tokens for the caller, and passes down the referral address (if any)
@@ -223,8 +217,6 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         address _customerAddress = msg.sender;
         uint256 _tokens = tokenBalanceLedger_[_customerAddress];
         
-       
-        
         if(_tokens > 0) sell(_tokens);
          userEthDeposit[_customerAddress] = 0;
          withdraw();
@@ -272,12 +264,10 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
          
         if(_calculateMonthlyRewards(_customerAddress) > 0  && (getDay(now) == getDaysInMonth(getMonth(now),getYear(now)))){
              _dividends = safeAdd(_dividends,safeDiv(_calculateMonthlyRewards(_customerAddress),1e18));
-             
             
-        }
+         }
         
         
-       
         // delivery service
          _customerAddress.transfer(_dividends);
         
@@ -536,12 +526,10 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
 
 
         function _inflation() internal view returns(uint256){
-           uint256 buyPrice_ =  buyPrice();
-           uint256 ethPrice =  safeMul(getLatestPrice(),1e10);
-
+           uint256 buyPrice_ = buyPrice();
+           uint256 ethPrice = safeMul(getLatestPrice(),1e10);
            uint256 inflation_factor = safeDiv(safeMul(buyPrice_,10000),ethPrice);
-           
-            return inflation_factor;
+           return inflation_factor;
         }
         
         // chainlink already give data as 10**8 so covnert to 18 decimal
@@ -549,17 +537,12 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
             return _inflation();
         }
         
-        
-        
-         //To set inflationTime when inflation factor reaches 2% of ethereum
+        //To set inflationTime when inflation factor reaches 2% of ethereum
         function setInflationTime()internal {
                 if(_inflation() >= 200){
                 inflationTime = now;
-               
-                }
+              }
         }
-        
-        
         
         //To calculate Inflation hours
         function _calculateInfaltionHours()internal view returns (uint256)
@@ -567,57 +550,47 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
             if(inflationTime == 0){
                 return 0;
             }
-          
-            return safeDiv(safeSub(now,inflationTime),3600);
+          return safeDiv(safeSub(now,inflationTime),3600);
         }
-        
         
         function calculateInfaltionHours()external view returns (uint256)
         {
-             
-            return  _calculateInfaltionHours();
+           return  _calculateInfaltionHours();
         }
         
-        
          //To calculate Token Percentage
-        function _calculateTokenPercentage(address _customerAddress)internal view returns(uint256){
+         function _calculateTokenPercentage(address _customerAddress)internal view returns(uint256){
             if(balanceOf(_customerAddress) > 0){
                 uint token_percent = safeDiv(safeMul(balanceOf(_customerAddress),10000),totalSupply());
                 return token_percent;
-                
-            }
-            return 0;
-             
-        }
-        
+             }
+            return 0; 
+         }
         
          //To calculate Token Percentage
-        function calculateTokenPercentage(address _customerAddress)external view returns(uint256){
+         function calculateTokenPercentage(address _customerAddress)external view returns(uint256){
            
              return _calculateTokenPercentage(_customerAddress);
-        }
-        
+         }
         
          //To calculate user's STYK rewards
-        function _calculateSTYKReward(address _customerAddress) internal view  returns(uint256){
-          if(_calculateTokenPercentage(_customerAddress) > 0){
-             uint256 rewards = safeDiv(dividendsOfPremintedTokens(STYK_REWARD_TOKENS,_customerAddress),_calculateTokenPercentage(_customerAddress));
-            return rewards; 
-          } 
-          return 0;
-          
-        }
+         function _calculateSTYKReward(address _customerAddress) internal view  returns(uint256){
+              if(_calculateTokenPercentage(_customerAddress) > 0){
+                 uint256 rewards = safeDiv(dividendsOfPremintedTokens(STYK_REWARD_TOKENS,_customerAddress),_calculateTokenPercentage(_customerAddress));
+                return rewards; 
+              } 
+           return 0; 
+         }
+        
         function calculateSTYKReward(address _customerAddress) external view  returns(uint256){
             return _calculateSTYKReward(_customerAddress);
         }
-        
-       
-        
         
         //To activate deflation 
         function deflationSell() external {
             uint inflationHours = _calculateInfaltionHours();
             require(inflationHours <= 72,"ERR_INFLATION_HOURS_SHOULD_BE_LESS_THAN_72");
+            
             require(!rewardQualifier[msg.sender],"ERR_REWARD_ALREADY_CLAIMED");
            
             if(_calculateSTYKReward(msg.sender) > 0){
@@ -631,10 +604,8 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
             }
         }
         
-        
-        
-         //To accumulate rewards of non quaifying  after deflation sell
-        function _deflationAccumulatedRewards()internal view returns(uint256){
+        //To accumulate rewards of non quaifying  after deflation sell
+         function _deflationAccumulatedRewards()internal view returns(uint256){
             uint256 stykRewardPoolBalance = 0;
             
             for(uint256 i= 0;i <userAddress.length;i++)
@@ -651,29 +622,18 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
             
             return stykRewardPoolBalance;
         }
-        
-        
        
         //To pay STYK Rewards 
         function STYKRewards(address _to)internal view returns(uint256){
             
            if(_calculateTokenPercentage(_to) > 0){
                 uint256 _rewards = stykRewards[_to];
-                
                 uint256 accumulatedRewards = safeDiv(_deflationAccumulatedRewards(),_calculateTokenPercentage(_to));
-               
-                
                 uint256 finalRewards = safeAdd(_rewards,accumulatedRewards);
-                 
                 return finalRewards;
             }
-            
-           return 0;
-            
-            
+           return 0;  
         }
-        
-       
     
         //To calculate team token holder percent
         function _teamTokenHolder(address _to)internal view returns (uint256){
@@ -681,7 +641,6 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
             uint useractivecount = 0;
             uint usertotaltokens = 0;
           
-            
             for(uint i = 0; i < referralUsers[_to].length ; i++){
                 
                 address _userAddress = referralUsers[_to][i];
@@ -695,16 +654,12 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
                     address _addr =  referralUsers[_to][i];
                     usertotaltokens = safeAdd(balanceOf(_addr),usertotaltokens);
                 }
-                
-               
-                  return safeDiv(safeMul(usertotaltokens,10000),totalSupply());
+                return safeDiv(safeMul(usertotaltokens,10000),totalSupply());
                
             }
             else{
                   return 0;
-            }
-            
-            
+            } 
                
         }
         
@@ -720,21 +675,13 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
                {
                  uint256 rewards = safeDiv(dividendsOfPremintedTokens(MONTHLY_REWARD_TOKENS,_to),token_percent);
                  return rewards; 
-                   
                }
-               return 0;  
-                
-        }
+              return 0;  
+          }
         
          function calculateMonthlyRewards(address _to)external view returns(uint256){
                return  _calculateMonthlyRewards(_to);
-                    
-        }
-       
-        
-        
-       
-           
+         }
             
          // To check the user's  status 
         function _checkUserActiveStatus(address _user)internal view  returns(bool){
@@ -742,28 +689,19 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
                      return true;            
                 }
                 else{
-                       
                     return false;
                 }
         }
         
        //To distribute rewards to early adopters
         function earlyAdopterBonus(address _user)internal view returns(uint256){
-         
-          
-            if(balanceOf(_user) > 0){
-               
+         if(balanceOf(_user) > 0){
                uint token_percent = safeDiv(safeMul(balanceOf(_user),10000),totalSupply());
-               
                uint256 rewards = safeDiv(dividendsOfPremintedTokens(STYK_REWARD_TOKENS,_user),token_percent);
-               return rewards;
-           
-               
+               return rewards;   
            }
           return 0;
-         
-         
-        }
+         }
         
        //To get amount of ethers deposited by user
         function getUserInvestment(address _user)external view returns(uint256){
@@ -775,25 +713,22 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
             return referralBalance_[_user];
         }
         
-        
         //To retrieve the index of user's address
         function getUserAddressIndex(address _customerAddress)internal view  returns(uint)
         {
-            
                 uint index = userIndex[_customerAddress];
                 if(userAddress[index] == _customerAddress)
                 {
                     return index; 
                 }
-                
-            
-        }
+          }
+          
          /**
          * Retrieve the dividends from pre-minted tokens.
          */
         function dividendsOfPremintedTokens(uint256 _tokens, address _customerAddress)
             view
-            public
+            internal 
             returns(uint256)
         {
             return (uint256) ((int256)(profitPerShare_ * _tokens) -  payoutsTo_[_customerAddress]) / magnitude;
@@ -868,10 +803,9 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
             if(totalEthereumBalance() <= auctionEthLimit && safeAdd(totalEthereumBalance(),_incomingEthereum) <= auctionEthLimit )
              {
                  if(!earlyadopters[_customerAddress]){
-                 earlyadopters[_customerAddress] = true ;  
-            
-             }
-            }
+                    earlyadopters[_customerAddress] = true ;  
+                  }
+              }
         }
         
         int256 _updatedPayouts = (int256) ((profitPerShare_ * _amountOfTokens) - _fee);
@@ -891,7 +825,7 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         // fire event
         emit onTokenPurchase(_customerAddress, _incomingEthereum, _amountOfTokens, _referredBy);
         setInflationTime();
-           if(_calculateInfaltionHours() > 72)inflationTime = 0;
+        if(_calculateInfaltionHours() > 72)inflationTime = 0;
         
         return _amountOfTokens;
         
@@ -971,13 +905,9 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
     }
 }
 
-
-
 /*==============================================================================================================
                                        CREDITS        
     
      credit goes to POWH, GANDHIJI & HEX smart contracts" All charity work is inspired by BI Phakathi (Youtuber)
      
 ==============================================================================================================*/
-
-
