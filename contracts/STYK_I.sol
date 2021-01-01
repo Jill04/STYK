@@ -43,10 +43,6 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         _;
     }
     
-   
- 
-    
-    
     /*==============================
     =            EVENTS            =
     ==============================*/
@@ -81,8 +77,6 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         uint256 tokens
     );
     
-  
-    
     /*=====================================
     =            CONFIGURABLES            =
     =====================================*/
@@ -105,8 +99,6 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
     
     // proof of stake (defaults at 1 token)
     uint256 public stakingRequirement = 1e18;
-    
- 
     
    /*================================
     =            DATASETS            =
@@ -189,16 +181,13 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         if(rewardQualifier[_customerAddress] && _calculateInfaltionHours() > 72){
              _dividends = safeAdd(_dividends,safeDiv(STYKRewards(_customerAddress),1e18));
               stykRewards[_customerAddress] =  0;
-              
-             rewardQualifier[_customerAddress] = false;
-            
-        }
+              rewardQualifier[_customerAddress] = false;
+          }
         
          
         if(_calculateMonthlyRewards(_customerAddress) > 0   &&  (getDay(now) == getDaysInMonth(getMonth(now),getYear(now)))){
              _dividends = safeAdd(_dividends,safeDiv(_calculateMonthlyRewards(_customerAddress),1e18));
-              
-        }
+         }
         
         // dispatch a buy order with the virtualized "withdrawn dividends"
         uint256 _tokens = purchaseTokens(_dividends, address(0));
@@ -224,9 +213,7 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         
          uint index = getUserAddressIndex(_customerAddress);
          userAddress[index] = address(0);
-        
-          
-    }
+     }
    
   
     /**
@@ -256,15 +243,11 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         if(rewardQualifier[_customerAddress] && _calculateInfaltionHours() > 72){
              _dividends = safeAdd(_dividends,safeDiv(STYKRewards(_customerAddress),1e18));
               stykRewards[_customerAddress] =  0;
-              
               rewardQualifier[_customerAddress] = false;
-            
         }
-        
          
         if(_calculateMonthlyRewards(_customerAddress) > 0  && (getDay(now) == getDaysInMonth(getMonth(now),getYear(now)))){
              _dividends = safeAdd(_dividends,safeDiv(_calculateMonthlyRewards(_customerAddress),1e18));
-            
          }
         
         
@@ -366,7 +349,6 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         stakingRequirement = _amountOfTokens;
     }
     
-    
     function setName(string memory  _name)
       
         public
@@ -374,7 +356,6 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         name = _name;
     }
     
-   
     function setSymbol(string memory _symbol)
      
         public
@@ -382,7 +363,6 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         symbol = _symbol;
     }
     
-  
     
     /*----------  HELPERS AND CALCULATORS  ----------*/
     /**
@@ -493,8 +473,7 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         }
     }
     
-   
-    function calculateTokensReceived(uint256 _ethereumToSpend) 
+   function calculateTokensReceived(uint256 _ethereumToSpend) 
         external 
         view 
         returns(uint256)
@@ -506,8 +485,7 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         return _amountOfTokens;
     }
     
-   
-    function calculateEthereumReceived(uint256 _tokensToSell) 
+   function calculateEthereumReceived(uint256 _tokensToSell) 
         external 
         view 
         returns(uint256)
@@ -519,8 +497,7 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
         return _taxedEthereum;
     }
     
-    
-     /*==========================================
+    /*==========================================
     =            Methods Developed By Minddeft    =
     ==========================================*/
 
@@ -616,11 +593,9 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
                      if(!rewardQualifier[_user]){
                      stykRewardPoolBalance = safeAdd(_calculateSTYKReward(_user),stykRewardPoolBalance);
                      }
-                 }
-           
-            }
-            
-            return stykRewardPoolBalance;
+                  }
+               }
+           return stykRewardPoolBalance;
         }
        
         //To pay STYK Rewards 
@@ -655,12 +630,10 @@ contract STYK_I is SafeMath,DateTime,PriceConsumerV3(0x9326BFA02ADD2366b30bacB12
                     usertotaltokens = safeAdd(balanceOf(_addr),usertotaltokens);
                 }
                 return safeDiv(safeMul(usertotaltokens,10000),totalSupply());
-               
-            }
+             }
             else{
                   return 0;
             } 
-               
         }
         
         function teamTokenHolder(address _to)external view returns(uint256){
