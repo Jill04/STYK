@@ -4,32 +4,23 @@ import "./SafeMath.sol";
 import "./PriceConsumerV3.sol";
 import "./DateTime.sol";
 
-contract STYK_I is
-    SafeMath,
-    DateTime,
-    PriceConsumerV3(0x9326BFA02ADD2366b30bacB125260Af641031331)
-{
+contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
     constructor(
+        address _pricefeed,
         uint256 _lockTime,
         uint256 _auctionExpiryTime,
         uint256 _auctionLimit
-    ) public {
-        // time lock for 100 years
-        _lockTime = safeAdd(now, _lockTime);
-
+    ) public PriceConsumerV3(_pricefeed) {
         STYK_REWARD_TOKENS = safeMul(200000, 1e18);
-
         MONTHLY_REWARD_TOKENS = safeMul(100000, 1e18);
 
         tokenBalanceLedger_[address(this)] = safeAdd(
             STYK_REWARD_TOKENS,
             MONTHLY_REWARD_TOKENS
         );
-
+        // time lock for 100 years
         lockTime = _lockTime;
-
         auctionExpiryTime = _auctionExpiryTime;
-
         auctionEthLimit = _auctionLimit;
     }
 
@@ -75,9 +66,6 @@ contract STYK_I is
         uint256 ethereumWithdrawn
     );
 
-    // ERC20
-    event Transfer(address indexed from, address indexed to, uint256 tokens);
-
     /*=====================================
     =            CONFIGURABLES            =
     =====================================*/
@@ -103,18 +91,21 @@ contract STYK_I is
     /*================================
     =            DATASETS            =
     ================================*/
-    // amount of shares for each address (scaled number)
+
     mapping(address => uint256) internal tokenBalanceLedger_;
     mapping(address => uint256) internal referralBalance_;
-    mapping(address => int256) internal payoutsTo_;
     mapping(address => bool) public rewardQualifier;
     mapping(address => uint256) internal stykRewards;
     mapping(address => address[]) internal referralUsers;
     mapping(address => mapping(address => bool)) internal userExists;
     mapping(address => bool) internal earlyadopters;
-    mapping(address => uint256) internal userEthDeposit;
     mapping(address => bool) internal userAdded;
     mapping(address => uint256) internal userIndex;
+    mapping(address => mapping(uint256 => uint256)) public monthlyRewards;
+    mapping(address => int256) internal payoutsTo_;
+    mapping(address => uint256) internal totalMonthRewards;
+    mapping(address => uint256) internal earlyadopterBonus;
+    mapping(address => uint256) internal userDeposit;
 
     address[] internal userAddress;
     uint256 internal tokenSupply_ = 0;
@@ -143,52 +134,39 @@ contract STYK_I is
      * Converts all of caller's dividends to tokens.
      */
     function reinvest() public onlyhodler() {
-        // fetch dividends
-        uint256 _dividends = myDividends(false); // retrieve ref. bonus later in the code
-
         // pay out the dividends virtually
         address _customerAddress = msg.sender;
-        payoutsTo_[_customerAddress] += (int256)(_dividends * magnitude);
-
-        // retrieve ref. bonus
-        _dividends += referralBalance_[_customerAddress];
+        // fetch dividends
+        uint256 _dividends = totalDividends(_customerAddress);
+        userDeposit[_customerAddress] = 0;
+        payoutsTo_[_customerAddress] += (int256)(
+            _dividendsOf(_customerAddress) * magnitude
+        );
         referralBalance_[_customerAddress] = 0;
 
-        if (earlyadopters[_customerAddress]) {
-            _dividends = safeAdd(
-                _dividends,
-                safeDiv(earlyAdopterBonus(_customerAddress), 1e18)
-            );
+        //determine whether user qualify for early adopter bonus or not
+        if (earlyadopters[_customerAddress] && now > auctionExpiryTime) {
+            if (balanceOf(_customerAddress) == 0) {
+                earlyadopterBonus[_customerAddress] = 0;
+            }
             earlyadopters[_customerAddress] = false;
         }
 
+        //determine whether user qualify for styk bonus or not
         if (
-            rewardQualifier[_customerAddress] && _calculateInfaltionHours() > 72
+            rewardQualifier[_customerAddress] &&
+            _calculateInflationMinutes() > 4320
         ) {
-            _dividends = safeAdd(
-                _dividends,
-                safeDiv(STYKRewards(_customerAddress), 1e18)
-            );
             stykRewards[_customerAddress] = 0;
             rewardQualifier[_customerAddress] = false;
         }
-
-        if (
-            _calculateMonthlyRewards(_customerAddress) > 0 &&
-            (getDay(now) == getDaysInMonth(getMonth(now), getYear(now)))
-        ) {
-            _dividends = safeAdd(
-                _dividends,
-                safeDiv(_calculateMonthlyRewards(_customerAddress), 1e18)
-            );
+        if (totalMonthRewards[_customerAddress] != 0) {
+            totalMonthRewards[_customerAddress] = 0;
         }
 
         // dispatch a buy order with the virtualized "withdrawn dividends"
         uint256 _tokens = purchaseTokens(_dividends, address(0));
-        userEthDeposit[_customerAddress] = safeAdd(
-            userEthDeposit[_customerAddress],
-            tokensToEthereum_(_tokens)
-        );
+
         // fire event
         emit onReinvestment(_customerAddress, _dividends, _tokens);
     }
@@ -202,7 +180,7 @@ contract STYK_I is
         uint256 _tokens = tokenBalanceLedger_[_customerAddress];
 
         if (_tokens > 0) sell(_tokens);
-        userEthDeposit[_customerAddress] = 0;
+
         withdraw();
         userAdded[_customerAddress] = false;
 
@@ -216,44 +194,34 @@ contract STYK_I is
     function withdraw() public onlyhodler() {
         // setup data
         address payable _customerAddress = msg.sender;
-        uint256 _dividends = myDividends(false); // get ref. bonus later in the code
+        uint256 _dividends = totalDividends(_customerAddress);
 
+        userDeposit[_customerAddress] = 0;
         // update dividend tracker
-        payoutsTo_[_customerAddress] += (int256)(_dividends * magnitude);
-
-        // add ref. bonus
-        _dividends += referralBalance_[_customerAddress];
+        payoutsTo_[_customerAddress] += (int256)(
+            _dividendsOf(_customerAddress) * magnitude
+        );
         referralBalance_[_customerAddress] = 0;
 
-        if (earlyadopters[_customerAddress]) {
-            _dividends = safeAdd(
-                _dividends,
-                safeDiv(earlyAdopterBonus(_customerAddress), 1e18)
-            );
+        //determine whether user qualify for early adopter bonus or not
+        if (earlyadopters[_customerAddress] && now > auctionExpiryTime) {
+            if (balanceOf(_customerAddress) == 0) {
+                earlyadopterBonus[_customerAddress] = 0;
+            }
             earlyadopters[_customerAddress] = false;
         }
 
+        //determine whether user qualify for styk bonus or not
         if (
-            rewardQualifier[_customerAddress] && _calculateInfaltionHours() > 72
+            rewardQualifier[_customerAddress] &&
+            _calculateInflationMinutes() > 4320
         ) {
-            _dividends = safeAdd(
-                _dividends,
-                safeDiv(STYKRewards(_customerAddress), 1e18)
-            );
             stykRewards[_customerAddress] = 0;
             rewardQualifier[_customerAddress] = false;
         }
-
-        if (
-            _calculateMonthlyRewards(_customerAddress) > 0 &&
-            (getDay(now) == getDaysInMonth(getMonth(now), getYear(now)))
-        ) {
-            _dividends = safeAdd(
-                _dividends,
-                safeDiv(_calculateMonthlyRewards(_customerAddress), 1e18)
-            );
+        if (totalMonthRewards[_customerAddress] != 0) {
+            totalMonthRewards[_customerAddress] = 0;
         }
-
         // delivery service
         _customerAddress.transfer(_dividends);
 
@@ -267,6 +235,8 @@ contract STYK_I is
     function sell(uint256 _amountOfTokens) public onlybelievers() {
         address _customerAddress = msg.sender;
 
+        // require(now > auctionExpiryTime,"ERR_CANNOT_SELL_TOKENS_BEFORE_AUCTION");
+
         require(_amountOfTokens <= tokenBalanceLedger_[_customerAddress]);
 
         uint256 _tokens = _amountOfTokens;
@@ -274,16 +244,25 @@ contract STYK_I is
         uint256 _dividends = safeDiv(_ethereum, dividendFee_);
         uint256 _taxedEthereum = safeSub(_ethereum, _dividends);
 
+        if (balanceOf(_customerAddress) == _amountOfTokens) {
+            if (earlyadopters[_customerAddress]) {
+                earlyadopterBonus[_customerAddress] = earlyAdopterBonus(
+                    _customerAddress
+                );
+            }
+            if (rewardQualifier[_customerAddress]) {
+                stykRewards[_customerAddress] = STYKRewards(_customerAddress);
+            }
+        }
+
         // burn the sold tokens
         tokenSupply_ = safeSub(tokenSupply_, _tokens);
         tokenBalanceLedger_[_customerAddress] = safeSub(
             tokenBalanceLedger_[_customerAddress],
             _tokens
         );
-
         // update dividends tracker
-        int256 _updatedPayouts =
-            (int256)(profitPerShare_ * _tokens + (_taxedEthereum * magnitude));
+        int256 _updatedPayouts = (int256)(profitPerShare_ * _tokens);
         payoutsTo_[_customerAddress] -= _updatedPayouts;
 
         // dividing by zero is a bad idea
@@ -291,74 +270,25 @@ contract STYK_I is
             // update the amount of dividends per token
             profitPerShare_ = safeAdd(
                 profitPerShare_,
-                (_dividends * magnitude) / tokenSupply_
+                (_dividends * magnitude) /
+                    safeAdd(tokenSupply_, balanceOf(address(this)))
             );
         }
         setInflationTime();
-        if (_calculateInfaltionHours() > 72) inflationTime = 0;
-        userEthDeposit[_customerAddress] = safeSub(
-            userEthDeposit[_customerAddress],
-            tokensToEthereum_(_tokens)
+
+        if (_calculateMonthlyRewards(_customerAddress) > 0) {
+            monthlyRewards[_customerAddress][
+                getMonth(now)
+            ] = _calculateMonthlyRewards(_customerAddress);
+        }
+
+        userDeposit[_customerAddress] = safeAdd(
+            userDeposit[_customerAddress],
+            _taxedEthereum
         );
-        // fire event
+
+        // fire events
         emit onTokenSell(_customerAddress, _tokens, _taxedEthereum);
-    }
-
-    /**
-     * Transfer tokens from the caller to a new holder.
-     * Remember, there's a 10% fee here as well.
-     */
-    function transfer(address _toAddress, uint256 _amountOfTokens)
-        public
-        onlybelievers()
-        returns (bool)
-    {
-        // setup
-        address _customerAddress = msg.sender;
-
-        // make sure we have the requested tokens
-
-        require(_amountOfTokens <= tokenBalanceLedger_[_customerAddress]);
-
-        // withdraw all outstanding dividends first
-        if (myDividends(true) > 0) withdraw();
-
-        // liquify 10% of the tokens that are transfered
-        // these are dispersed to shareholders
-        uint256 _tokenFee = safeDiv(_amountOfTokens, dividendFee_);
-        uint256 _taxedTokens = safeSub(_amountOfTokens, _tokenFee);
-        uint256 _dividends = tokensToEthereum_(_tokenFee);
-
-        // burn the fee tokens
-        tokenSupply_ = safeSub(tokenSupply_, _tokenFee);
-
-        // exchange tokens
-        tokenBalanceLedger_[_customerAddress] = safeSub(
-            tokenBalanceLedger_[_customerAddress],
-            _amountOfTokens
-        );
-        tokenBalanceLedger_[_toAddress] = safeAdd(
-            tokenBalanceLedger_[_toAddress],
-            _taxedTokens
-        );
-
-        // update dividend trackers
-        payoutsTo_[_customerAddress] -= (int256)(
-            profitPerShare_ * _amountOfTokens
-        );
-        payoutsTo_[_toAddress] += (int256)(profitPerShare_ * _taxedTokens);
-
-        // disperse dividends among holders
-        profitPerShare_ = safeAdd(
-            profitPerShare_,
-            (_dividends * magnitude) / tokenSupply_
-        );
-
-        // fire event
-        emit Transfer(_customerAddress, _toAddress, _taxedTokens);
-
-        // ERC20
-        return true;
     }
 
     function setStakingRequirement(uint256 _amountOfTokens) public {
@@ -408,9 +338,9 @@ contract STYK_I is
         address _customerAddress = msg.sender;
         return
             _includeReferralBonus
-                ? dividendsOf(_customerAddress) +
+                ? _dividendsOf(_customerAddress) +
                     referralBalance_[_customerAddress]
-                : dividendsOf(_customerAddress);
+                : _dividendsOf(_customerAddress);
     }
 
     /**
@@ -423,17 +353,21 @@ contract STYK_I is
     /**
      * Retrieve the dividend balance of any single address.
      */
-    function dividendsOf(address _customerAddress)
+    function _dividendsOf(address _customerAddress)
         public
         view
         returns (uint256)
     {
         return
-            (uint256)(
-                (int256)(
-                    profitPerShare_ * tokenBalanceLedger_[_customerAddress]
-                ) - payoutsTo_[_customerAddress]
-            ) / magnitude;
+            safeAdd(
+                (uint256)(
+                    (int256)(
+                        profitPerShare_ *
+                            (tokenBalanceLedger_[_customerAddress])
+                    ) - payoutsTo_[_customerAddress]
+                ) / magnitude,
+                userDeposit[_customerAddress]
+            );
     }
 
     /**
@@ -499,7 +433,7 @@ contract STYK_I is
         return inflation_factor;
     }
 
-    // chainlink already give data as 10**8 so covnert to 18 decimal
+    // chainlink already give data as 10**8 so convert to 18 decimal
     function checkInflation() external view returns (uint256) {
         return _inflation();
     }
@@ -511,16 +445,16 @@ contract STYK_I is
         }
     }
 
-    //To calculate Inflation hours
-    function _calculateInfaltionHours() internal view returns (uint256) {
+    //To calculate Inflation minutes (72 hours converted into minutes)
+    function _calculateInflationMinutes() internal view returns (uint256) {
         if (inflationTime == 0) {
             return 0;
         }
-        return safeDiv(safeSub(now, inflationTime), 3600);
+        return safeDiv(safeSub(now, inflationTime), 60);
     }
 
-    function calculateInfaltionHours() external view returns (uint256) {
-        return _calculateInfaltionHours();
+    function calculateInflationMinutes() external view returns (uint256) {
+        return _calculateInflationMinutes();
     }
 
     //To calculate Token Percentage
@@ -532,7 +466,7 @@ contract STYK_I is
         if (balanceOf(_customerAddress) > 0) {
             uint256 token_percent =
                 safeDiv(
-                    safeMul(balanceOf(_customerAddress), 10000),
+                    safeMul(balanceOf(_customerAddress), 1000000),
                     totalSupply()
                 );
             return token_percent;
@@ -555,14 +489,15 @@ contract STYK_I is
         view
         returns (uint256)
     {
-        if (_calculateTokenPercentage(_customerAddress) > 0) {
+        uint256 token_percent = _calculateTokenPercentage(_customerAddress);
+        if (token_percent > 0) {
             uint256 rewards =
                 safeDiv(
-                    dividendsOfPremintedTokens(
-                        STYK_REWARD_TOKENS,
-                        _customerAddress
+                    safeMul(
+                        _dividendsOfPremintedTokens(STYK_REWARD_TOKENS),
+                        token_percent
                     ),
-                    _calculateTokenPercentage(_customerAddress)
+                    1000000
                 );
             return rewards;
         }
@@ -579,10 +514,10 @@ contract STYK_I is
 
     //To activate deflation
     function deflationSell() external {
-        uint256 inflationHours = _calculateInfaltionHours();
+        uint256 inflationMinutes = _calculateInflationMinutes();
         require(
-            inflationHours <= 72,
-            "ERR_INFLATION_HOURS_SHOULD_BE_LESS_THAN_72"
+            inflationMinutes <= 4320,
+            "ERR_INFLATION_MINUTES_SHOULD_BE_LESS_THAN_4320"
         );
 
         require(!rewardQualifier[msg.sender], "ERR_REWARD_ALREADY_CLAIMED");
@@ -590,7 +525,7 @@ contract STYK_I is
         if (_calculateSTYKReward(msg.sender) > 0) {
             uint256 rewards = _calculateSTYKReward(msg.sender);
 
-            stykRewards[msg.sender] = rewards;
+            stykRewards[msg.sender] = safeAdd(stykRewards[msg.sender], rewards);
 
             uint256 userToken =
                 safeDiv(safeMul(balanceOf(msg.sender), 25), 100);
@@ -614,7 +549,6 @@ contract STYK_I is
                 }
             }
         }
-
         return stykRewardPoolBalance;
     }
 
@@ -623,7 +557,7 @@ contract STYK_I is
         if (_calculateTokenPercentage(_to) > 0) {
             uint256 _rewards = stykRewards[_to];
             uint256 accumulatedRewards =
-                safeDiv(
+                safeMul(
                     _deflationAccumulatedRewards(),
                     _calculateTokenPercentage(_to)
                 );
@@ -650,7 +584,7 @@ contract STYK_I is
                 address _addr = referralUsers[_to][i];
                 usertotaltokens = safeAdd(balanceOf(_addr), usertotaltokens);
             }
-            return safeDiv(safeMul(usertotaltokens, 10000), totalSupply());
+            return safeDiv(safeMul(usertotaltokens, 1000000), totalSupply());
         } else {
             return 0;
         }
@@ -670,9 +604,13 @@ contract STYK_I is
         if (token_percent != 0) {
             uint256 rewards =
                 safeDiv(
-                    dividendsOfPremintedTokens(MONTHLY_REWARD_TOKENS, _to),
-                    token_percent
+                    safeMul(
+                        _dividendsOfPremintedTokens(MONTHLY_REWARD_TOKENS),
+                        token_percent
+                    ),
+                    1000000
                 );
+
             return rewards;
         }
         return 0;
@@ -702,24 +640,23 @@ contract STYK_I is
     //To distribute rewards to early adopters
     function earlyAdopterBonus(address _user) internal view returns (uint256) {
         if (balanceOf(_user) > 0) {
-            uint256 token_percent =
-                safeDiv(safeMul(balanceOf(_user), 10000), totalSupply());
+            uint256 token_percent = _calculateTokenPercentage(_user);
             uint256 rewards =
                 safeDiv(
-                    dividendsOfPremintedTokens(STYK_REWARD_TOKENS, _user),
-                    token_percent
+                    safeMul(
+                        _dividendsOfPremintedTokens(
+                            tokenBalanceLedger_[address(this)]
+                        ),
+                        token_percent
+                    ),
+                    1000000
                 );
             return rewards;
         }
         return 0;
     }
 
-    //To get amount of ethers deposited by user
-    function getUserInvestment(address _user) external view returns (uint256) {
-        return userEthDeposit[_user];
-    }
-
-    //To get user affliate rewards
+    //To get user affiliate rewards
     function getUserAffiliateBalance(address _user)
         external
         view
@@ -743,15 +680,89 @@ contract STYK_I is
     /**
      * Retrieve the dividends from pre-minted tokens.
      */
-    function dividendsOfPremintedTokens(
-        uint256 _tokens,
-        address _customerAddress
-    ) internal view returns (uint256) {
-        return
-            (uint256)(
-                (int256)(profitPerShare_ * _tokens) -
-                    payoutsTo_[_customerAddress]
-            ) / magnitude;
+    function _dividendsOfPremintedTokens(uint256 _tokens)
+        internal
+        view
+        returns (uint256)
+    {
+        return (uint256)((int256)(profitPerShare_ * _tokens)) / magnitude;
+    }
+
+    //To calculate total dividends of user
+    function totalDividends(address _customerAddress)
+        public
+        view
+        returns (uint256)
+    {
+        uint256 _dividends = _dividendsOf(_customerAddress);
+
+        uint256 qualifying_rewards;
+        if (earlyadopters[_customerAddress] && now > auctionExpiryTime) {
+            if (balanceOf(_customerAddress) > 0) {
+                qualifying_rewards = safeAdd(
+                    qualifying_rewards,
+                    earlyAdopterBonus(_customerAddress)
+                );
+            } else {
+                qualifying_rewards = safeAdd(
+                    qualifying_rewards,
+                    earlyadopterBonus[_customerAddress]
+                );
+            }
+        }
+        if (
+            rewardQualifier[_customerAddress] &&
+            _calculateInflationMinutes() > 4320
+        ) {
+            if (balanceOf(_customerAddress) > 0) {
+                qualifying_rewards = safeAdd(
+                    qualifying_rewards,
+                    STYKRewards(_customerAddress)
+                );
+            } else {
+                qualifying_rewards = safeAdd(
+                    qualifying_rewards,
+                    stykRewards[_customerAddress]
+                );
+            }
+        }
+
+        if (totalMonthRewards[_customerAddress] != 0) {
+            qualifying_rewards = safeAdd(
+                qualifying_rewards,
+                totalMonthRewards[_customerAddress]
+            );
+        }
+
+        return (
+            safeAdd(
+                safeAdd(_dividends, qualifying_rewards),
+                referralBalance_[_customerAddress]
+            )
+        );
+    }
+
+    //To Claim Monthly Rewards
+    function claimMonthlyRewards() external {
+        address _customerAddress = msg.sender;
+        uint256 month = safeSub(getMonth(now), 1);
+        if (month == 0) month = 12;
+        if (monthlyRewards[_customerAddress][month] != 0) {
+            totalMonthRewards[_customerAddress] = safeAdd(
+                totalMonthRewards[_customerAddress],
+                monthlyRewards[_customerAddress][month]
+            );
+            monthlyRewards[_customerAddress][month] = 0;
+        }
+        if ((getDay(now) == getDaysInMonth(getMonth(now), getYear(now)))) {
+            if (monthlyRewards[_customerAddress][getMonth(now)] != 0) {
+                totalMonthRewards[_customerAddress] = safeAdd(
+                    totalMonthRewards[_customerAddress],
+                    monthlyRewards[_customerAddress][getMonth(now)]
+                );
+                monthlyRewards[_customerAddress][getMonth(now)] = 0;
+            }
+        }
     }
 
     /*==========================================
@@ -764,7 +775,7 @@ contract STYK_I is
         // data setup
         address _customerAddress = msg.sender;
         uint256 _undividedDividends = safeDiv(_incomingEthereum, dividendFee_);
-        uint256 _referralBonus = safeDiv(_undividedDividends, 5);
+        uint256 _referralBonus = safeDiv(_undividedDividends, 2);
         uint256 _dividends = safeSub(_undividedDividends, _referralBonus);
         uint256 _taxedEthereum =
             safeSub(_incomingEthereum, _undividedDividends);
@@ -795,24 +806,20 @@ contract STYK_I is
             _fee = _dividends * magnitude;
         }
 
-        // we can't give people infinite ethereum
-        if (tokenSupply_ > 0) {
-            // add tokens to the pool
-            tokenSupply_ = safeAdd(tokenSupply_, _amountOfTokens);
+        // add tokens to the pool
+        tokenSupply_ = safeAdd(tokenSupply_, _amountOfTokens);
 
-            // take the amount of dividends gained through this transaction, and allocates them evenly to each shareholder
-            profitPerShare_ += ((_dividends * magnitude) / (tokenSupply_));
+        // take the amount of dividends gained through this transaction, and allocates them evenly to each shareholder
+        profitPerShare_ += ((_dividends * magnitude) /
+            safeAdd(tokenSupply_, balanceOf(address(this))));
 
-            // calculate the amount of tokens the customer receives over his purchase
-            _fee =
-                _fee -
-                (_fee -
-                    (_amountOfTokens *
-                        ((_dividends * magnitude) / (tokenSupply_))));
-        } else {
-            // add tokens to the pool
-            tokenSupply_ = _amountOfTokens;
-        }
+        // calculate the amount of tokens the customer receives over his purchase
+        _fee =
+            _fee -
+            (_fee -
+                (_amountOfTokens *
+                    ((_dividends * magnitude) /
+                        safeAdd(tokenSupply_, balanceOf(address(this))))));
 
         // update circulating supply & the ledger address for the customer
         tokenBalanceLedger_[_customerAddress] = safeAdd(
@@ -820,13 +827,21 @@ contract STYK_I is
             _amountOfTokens
         );
 
+        int256 _updatedPayouts =
+            (int256)((profitPerShare_ * _amountOfTokens) - _fee);
+        payoutsTo_[_customerAddress] += _updatedPayouts;
+
         if (
-            !userExists[_referredBy][_customerAddress] &&
-            _referredBy != address(0) &&
-            _referredBy != _customerAddress
+            now > auctionExpiryTime || totalEthereumBalance() >= auctionEthLimit
         ) {
-            userExists[_referredBy][_customerAddress] = true;
-            referralUsers[_referredBy].push(_customerAddress);
+            if (
+                !userExists[_referredBy][_customerAddress] &&
+                _referredBy != address(0) &&
+                _referredBy != _customerAddress
+            ) {
+                userExists[_referredBy][_customerAddress] = true;
+                referralUsers[_referredBy].push(_customerAddress);
+            }
         }
 
         if (now <= auctionExpiryTime) {
@@ -841,10 +856,6 @@ contract STYK_I is
             }
         }
 
-        int256 _updatedPayouts =
-            (int256)((profitPerShare_ * _amountOfTokens) - _fee);
-        payoutsTo_[_customerAddress] += _updatedPayouts;
-
         if (!userAdded[_customerAddress]) {
             userAddress.push(_customerAddress);
             userAdded[_customerAddress] = true;
@@ -852,10 +863,11 @@ contract STYK_I is
             userCount++;
         }
 
-        userEthDeposit[_customerAddress] = safeAdd(
-            userEthDeposit[_customerAddress],
-            msg.value
-        );
+        if (_calculateMonthlyRewards(_referredBy) > 0) {
+            monthlyRewards[_referredBy][
+                getMonth(now)
+            ] = _calculateMonthlyRewards(_referredBy);
+        }
 
         // fire event
         emit onTokenPurchase(
@@ -865,7 +877,6 @@ contract STYK_I is
             _referredBy
         );
         setInflationTime();
-        if (_calculateInfaltionHours() > 72) inflationTime = 0;
 
         return _amountOfTokens;
     }
