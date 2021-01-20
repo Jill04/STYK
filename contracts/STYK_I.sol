@@ -66,6 +66,9 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         uint256 ethereumWithdrawn
     );
 
+    // ERC20
+    event Transfer(address indexed from, address indexed to, uint256 tokens);
+
     /*=====================================
     =            CONFIGURABLES            =
     =====================================*/
@@ -274,7 +277,6 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
                     safeAdd(tokenSupply_, balanceOf(address(this)))
             );
         }
-        setInflationTime();
 
         if (_calculateMonthlyRewards(_customerAddress) > 0) {
             monthlyRewards[_customerAddress][
@@ -286,6 +288,8 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
             userDeposit[_customerAddress],
             _taxedEthereum
         );
+
+        setInflationTime();
 
         // fire events
         emit onTokenSell(_customerAddress, _tokens, _taxedEthereum);
@@ -406,7 +410,6 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         uint256 _dividends = safeDiv(_ethereumToSpend, dividendFee_);
         uint256 _taxedEthereum = safeSub(_ethereumToSpend, _dividends);
         uint256 _amountOfTokens = ethereumToTokens_(_taxedEthereum);
-
         return _amountOfTokens;
     }
 
@@ -489,17 +492,20 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         view
         returns (uint256)
     {
-        uint256 token_percent = _calculateTokenPercentage(_customerAddress);
-        if (token_percent > 0) {
-            uint256 rewards =
-                safeDiv(
-                    safeMul(
-                        _dividendsOfPremintedTokens(STYK_REWARD_TOKENS),
-                        token_percent
-                    ),
-                    1000000
-                );
-            return rewards;
+        if (now > auctionExpiryTime) {
+            uint256 token_percent = _calculateTokenPercentage(_customerAddress);
+            if (token_percent > 0) {
+                uint256 rewards =
+                    safeDiv(
+                        safeMul(
+                            _dividendsOfPremintedTokens(STYK_REWARD_TOKENS),
+                            token_percent
+                        ),
+                        1000000
+                    );
+                return rewards;
+            }
+            return 0;
         }
         return 0;
     }
@@ -534,7 +540,7 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         }
     }
 
-    //To accumulate rewards of non quaifying  after deflation sell
+    //To accumulate rewards of non qualifying after deflation sell
     function _deflationAccumulatedRewards() internal view returns (uint256) {
         uint256 stykRewardPoolBalance = 0;
 
@@ -877,6 +883,7 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
             _referredBy
         );
         setInflationTime();
+        emit Transfer(address(this), _customerAddress, _amountOfTokens);
 
         return _amountOfTokens;
     }
