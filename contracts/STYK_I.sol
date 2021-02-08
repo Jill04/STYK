@@ -9,7 +9,8 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         address _pricefeed,
         uint256 _lockTime,
         uint256 _auctionExpiryTime,
-        uint256 _auctionLimit
+        uint256 _auctionLimit,
+        uint256 _stakeAmount
     ) public PriceConsumerV3(_pricefeed) {
         STYK_REWARD_TOKENS = safeMul(200000, 1e18);
         MONTHLY_REWARD_TOKENS = safeMul(100000, 1e18);
@@ -22,6 +23,7 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         lockTime = _lockTime;
         auctionExpiryTime = _auctionExpiryTime;
         auctionEthLimit = _auctionLimit;
+        stakingRequirement = _stakeAmount;
     }
 
     /*=================================
@@ -89,7 +91,7 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
     uint56 internal userCount = 0;
 
     // proof of stake (defaults at 1 token)
-    uint256 public stakingRequirement = 1e18;
+    uint256 internal stakingRequirement;
 
     /*================================
     =            DATASETS            =
@@ -109,12 +111,14 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
     mapping(address => uint256) internal totalMonthRewards;
     mapping(address => uint256) internal earlyadopterBonus;
     mapping(address => uint256) internal userDeposit;
+    mapping(address => bool) internal auctionAddressTracker;
 
     address[] internal userAddress;
     uint256 internal tokenSupply_ = 0;
     uint256 public auctionEthLimit;
     uint256 public auctionExpiryTime;
     uint256 internal profitPerShare_;
+    uint256 internal auctionProfitPerShare_;
 
     /**
      * Converts all incoming Ethereum to tokens for the caller, and passes down the referral address (if any)
@@ -148,8 +152,11 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         referralBalance_[_customerAddress] = 0;
 
         //determine whether user qualify for early adopter bonus or not
-        if (earlyadopters[_customerAddress] && now > auctionExpiryTime) {
-            if (balanceOf(_customerAddress) == 0) {
+        if (
+            earlyadopters[_customerAddress] &&
+            (now > safeAdd(auctionExpiryTime, 24 hours))
+        ) {
+            if (tokenBalanceLedger_[_customerAddress] == 0) {
                 earlyadopterBonus[_customerAddress] = 0;
             }
             earlyadopters[_customerAddress] = false;
@@ -188,7 +195,16 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         userAdded[_customerAddress] = false;
 
         uint256 index = getUserAddressIndex(_customerAddress);
-        userAddress[index] = address(0);
+        address _lastAddress = userAddress[userAddress.length - 1];
+        uint256 _lastindex = getUserAddressIndex(_lastAddress);
+        userAddress[index] = _lastAddress;
+        userAddress[userAddress.length - 1] = _customerAddress;
+
+        userIndex[_lastAddress] = index;
+        userIndex[_customerAddress] = _lastindex;
+        delete userIndex[_customerAddress];
+        userAddress.pop();
+        userCount--;
     }
 
     /**
@@ -207,8 +223,11 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         referralBalance_[_customerAddress] = 0;
 
         //determine whether user qualify for early adopter bonus or not
-        if (earlyadopters[_customerAddress] && now > auctionExpiryTime) {
-            if (balanceOf(_customerAddress) == 0) {
+        if (
+            earlyadopters[_customerAddress] &&
+            (now > safeAdd(auctionExpiryTime, 24 hours))
+        ) {
+            if (tokenBalanceLedger_[_customerAddress] == 0) {
                 earlyadopterBonus[_customerAddress] = 0;
             }
             earlyadopters[_customerAddress] = false;
@@ -238,7 +257,10 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
     function sell(uint256 _amountOfTokens) public onlybelievers() {
         address _customerAddress = msg.sender;
 
-        // require(now > auctionExpiryTime,"ERR_CANNOT_SELL_TOKENS_BEFORE_AUCTION");
+        require(
+            now > auctionExpiryTime,
+            "ERR_CANNOT_SELL_TOKENS_BEFORE_AUCTION"
+        );
 
         require(_amountOfTokens <= tokenBalanceLedger_[_customerAddress]);
 
@@ -247,7 +269,7 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         uint256 _dividends = safeDiv(_ethereum, dividendFee_);
         uint256 _taxedEthereum = safeSub(_ethereum, _dividends);
 
-        if (balanceOf(_customerAddress) == _amountOfTokens) {
+        if (tokenBalanceLedger_[_customerAddress] == _amountOfTokens) {
             if (earlyadopters[_customerAddress]) {
                 earlyadopterBonus[_customerAddress] = earlyAdopterBonus(
                     _customerAddress
@@ -264,17 +286,28 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
             tokenBalanceLedger_[_customerAddress],
             _tokens
         );
-        // update dividends tracker
-        int256 _updatedPayouts = (int256)(profitPerShare_ * _tokens);
-        payoutsTo_[_customerAddress] -= _updatedPayouts;
+
+        if (auctionAddressTracker[_customerAddress]) {
+            int256 _updatedPayouts = (int256)(auctionProfitPerShare_ * _tokens);
+            payoutsTo_[_customerAddress] -= _updatedPayouts;
+        } else {
+            int256 _updatedPayouts = (int256)(profitPerShare_ * _tokens);
+            payoutsTo_[_customerAddress] -= _updatedPayouts;
+        }
 
         // dividing by zero is a bad idea
         if (tokenSupply_ > 0) {
             // update the amount of dividends per token
+            auctionProfitPerShare_ = safeAdd(
+                auctionProfitPerShare_,
+                (_dividends * magnitude) /
+                    safeAdd(tokenSupply_, tokenBalanceLedger_[address(this)])
+            );
+
             profitPerShare_ = safeAdd(
                 profitPerShare_,
                 (_dividends * magnitude) /
-                    safeAdd(tokenSupply_, balanceOf(address(this)))
+                    safeAdd(tokenSupply_, tokenBalanceLedger_[address(this)])
             );
         }
 
@@ -289,22 +322,9 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
             _taxedEthereum
         );
 
-        setInflationTime();
-
         // fire events
         emit onTokenSell(_customerAddress, _tokens, _taxedEthereum);
-    }
-
-    function setStakingRequirement(uint256 _amountOfTokens) public {
-        stakingRequirement = _amountOfTokens;
-    }
-
-    function setName(string memory _name) public {
-        name = _name;
-    }
-
-    function setSymbol(string memory _symbol) public {
-        symbol = _symbol;
+        emit Transfer(_customerAddress, address(0), _amountOfTokens);
     }
 
     /*----------  HELPERS AND CALCULATORS  ----------*/
@@ -362,16 +382,29 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         view
         returns (uint256)
     {
-        return
-            safeAdd(
-                (uint256)(
-                    (int256)(
-                        profitPerShare_ *
-                            (tokenBalanceLedger_[_customerAddress])
-                    ) - payoutsTo_[_customerAddress]
-                ) / magnitude,
-                userDeposit[_customerAddress]
-            );
+        if (auctionAddressTracker[_customerAddress]) {
+            return
+                safeAdd(
+                    (uint256)(
+                        (int256)(
+                            auctionProfitPerShare_ *
+                                (tokenBalanceLedger_[_customerAddress])
+                        ) - payoutsTo_[_customerAddress]
+                    ) / magnitude,
+                    userDeposit[_customerAddress]
+                );
+        } else {
+            return
+                safeAdd(
+                    (uint256)(
+                        (int256)(
+                            profitPerShare_ *
+                                (tokenBalanceLedger_[_customerAddress])
+                        ) - payoutsTo_[_customerAddress]
+                    ) / magnitude,
+                    userDeposit[_customerAddress]
+                );
+        }
     }
 
     /**
@@ -466,10 +499,10 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         view
         returns (uint256)
     {
-        if (balanceOf(_customerAddress) > 0) {
+        if (tokenBalanceLedger_[_customerAddress] > 0) {
             uint256 token_percent =
                 safeDiv(
-                    safeMul(balanceOf(_customerAddress), 1000000),
+                    safeMul(tokenBalanceLedger_[_customerAddress], 1000000),
                     totalSupply()
                 );
             return token_percent;
@@ -529,13 +562,14 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         require(!rewardQualifier[msg.sender], "ERR_REWARD_ALREADY_CLAIMED");
 
         if (_calculateSTYKReward(msg.sender) > 0) {
+            rewardQualifier[msg.sender] = true;
             uint256 rewards = _calculateSTYKReward(msg.sender);
 
             stykRewards[msg.sender] = safeAdd(stykRewards[msg.sender], rewards);
 
             uint256 userToken =
-                safeDiv(safeMul(balanceOf(msg.sender), 25), 100);
-            rewardQualifier[msg.sender] = true;
+                safeDiv(safeMul(tokenBalanceLedger_[msg.sender], 25), 100);
+
             sell(userToken);
         }
     }
@@ -563,9 +597,12 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         if (_calculateTokenPercentage(_to) > 0) {
             uint256 _rewards = stykRewards[_to];
             uint256 accumulatedRewards =
-                safeMul(
-                    _deflationAccumulatedRewards(),
-                    _calculateTokenPercentage(_to)
+                safeDiv(
+                    safeMul(
+                        _deflationAccumulatedRewards(),
+                        _calculateTokenPercentage(_to)
+                    ),
+                    1000000
                 );
             uint256 finalRewards = safeAdd(_rewards, accumulatedRewards);
             return finalRewards;
@@ -588,7 +625,10 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         if (useractivecount >= 3) {
             for (uint256 i = 0; i < referralUsers[_to].length; i++) {
                 address _addr = referralUsers[_to][i];
-                usertotaltokens = safeAdd(balanceOf(_addr), usertotaltokens);
+                usertotaltokens = safeAdd(
+                    tokenBalanceLedger_[_addr],
+                    usertotaltokens
+                );
             }
             return safeDiv(safeMul(usertotaltokens, 1000000), totalSupply());
         } else {
@@ -636,7 +676,7 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         view
         returns (bool)
     {
-        if (balanceOf(_user) > safeMul(10, 1e18)) {
+        if (tokenBalanceLedger_[_user] > safeMul(10, 1e18)) {
             return true;
         } else {
             return false;
@@ -644,17 +684,19 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
     }
 
     //To distribute rewards to early adopters
-    function earlyAdopterBonus(address _user) internal view returns (uint256) {
-        if (balanceOf(_user) > 0) {
+    function earlyAdopterBonus(address _user) public view returns (uint256) {
+        if (tokenBalanceLedger_[_user] > 0 && earlyadopters[_user]) {
             uint256 token_percent = _calculateTokenPercentage(_user);
+            uint256 _earlyadopterDividends =
+                (uint256)(
+                    (int256)(
+                        auctionProfitPerShare_ *
+                            tokenBalanceLedger_[address(this)]
+                    )
+                ) / magnitude;
             uint256 rewards =
                 safeDiv(
-                    safeMul(
-                        _dividendsOfPremintedTokens(
-                            tokenBalanceLedger_[address(this)]
-                        ),
-                        token_percent
-                    ),
+                    safeMul(_earlyadopterDividends, token_percent),
                     1000000
                 );
             return rewards;
@@ -677,10 +719,7 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         view
         returns (uint256)
     {
-        uint256 index = userIndex[_customerAddress];
-        if (userAddress[index] == _customerAddress) {
-            return index;
-        }
+        return userIndex[_customerAddress];
     }
 
     /**
@@ -703,8 +742,11 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         uint256 _dividends = _dividendsOf(_customerAddress);
 
         uint256 qualifying_rewards;
-        if (earlyadopters[_customerAddress] && now > auctionExpiryTime) {
-            if (balanceOf(_customerAddress) > 0) {
+        if (
+            earlyadopters[_customerAddress] &&
+            (now > safeAdd(auctionExpiryTime, 24 hours))
+        ) {
+            if (tokenBalanceLedger_[_customerAddress] > 0) {
                 qualifying_rewards = safeAdd(
                     qualifying_rewards,
                     earlyAdopterBonus(_customerAddress)
@@ -720,7 +762,7 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
             rewardQualifier[_customerAddress] &&
             _calculateInflationMinutes() > 4320
         ) {
-            if (balanceOf(_customerAddress) > 0) {
+            if (tokenBalanceLedger_[_customerAddress] > 0) {
                 qualifying_rewards = safeAdd(
                     qualifying_rewards,
                     STYKRewards(_customerAddress)
@@ -771,6 +813,14 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         }
     }
 
+    //To release the pre-minted tokens after the lock time
+    function release() external {
+        require(now > lockTime, "ERR_CANNOT_RELEASE_TOKENS_BEFORE_LOCK_TIME");
+
+        uint256 amount = tokenBalanceLedger_[address(this)];
+        tokenSupply_ = safeAdd(tokenSupply_, amount);
+    }
+
     /*==========================================
     =            INTERNAL FUNCTIONS            =
     ==========================================*/
@@ -816,8 +866,12 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         tokenSupply_ = safeAdd(tokenSupply_, _amountOfTokens);
 
         // take the amount of dividends gained through this transaction, and allocates them evenly to each shareholder
-        profitPerShare_ += ((_dividends * magnitude) /
-            safeAdd(tokenSupply_, balanceOf(address(this))));
+        if (now > auctionExpiryTime) {
+            profitPerShare_ += ((_dividends * magnitude) /
+                safeAdd(tokenSupply_, tokenBalanceLedger_[address(this)]));
+        }
+        auctionProfitPerShare_ += ((_dividends * magnitude) /
+            safeAdd(tokenSupply_, tokenBalanceLedger_[address(this)]));
 
         // calculate the amount of tokens the customer receives over his purchase
         _fee =
@@ -825,17 +879,16 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
             (_fee -
                 (_amountOfTokens *
                     ((_dividends * magnitude) /
-                        safeAdd(tokenSupply_, balanceOf(address(this))))));
+                        safeAdd(
+                            tokenSupply_,
+                            tokenBalanceLedger_[address(this)]
+                        ))));
 
         // update circulating supply & the ledger address for the customer
         tokenBalanceLedger_[_customerAddress] = safeAdd(
             tokenBalanceLedger_[_customerAddress],
             _amountOfTokens
         );
-
-        int256 _updatedPayouts =
-            (int256)((profitPerShare_ * _amountOfTokens) - _fee);
-        payoutsTo_[_customerAddress] += _updatedPayouts;
 
         if (
             now > auctionExpiryTime || totalEthereumBalance() >= auctionEthLimit
@@ -859,7 +912,20 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
                 if (!earlyadopters[_customerAddress]) {
                     earlyadopters[_customerAddress] = true;
                 }
+                if (!auctionAddressTracker[_customerAddress]) {
+                    auctionAddressTracker[_customerAddress] = true;
+                }
             }
+        }
+
+        if (auctionAddressTracker[_customerAddress]) {
+            int256 _updatedPayouts =
+                (int256)((auctionProfitPerShare_ * _amountOfTokens) - _fee);
+            payoutsTo_[_customerAddress] += _updatedPayouts;
+        } else {
+            int256 _updatedPayouts =
+                (int256)((profitPerShare_ * _amountOfTokens) - _fee);
+            payoutsTo_[_customerAddress] += _updatedPayouts;
         }
 
         if (!userAdded[_customerAddress]) {
@@ -882,7 +948,8 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
             _amountOfTokens,
             _referredBy
         );
-        setInflationTime();
+
+         if(inflationTime == 0 || _calculateInflationMinutes() > 4320)setInflationTime();
         emit Transfer(address(this), _customerAddress, _amountOfTokens);
 
         return _amountOfTokens;
@@ -955,9 +1022,11 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
     }
 }
 
-/*==============================================================================================================
+/*================================================================================================================================
+                                      
                                        CREDITS        
     
-     credit goes to POWH, GANDHIJI & HEX smart contracts" All charity work is inspired by BI Phakathi (Youtuber)
+   credit goes to POWH, GANDHIJI, HEX, WISE & ECLIPSE CITY smart contracts" All charity work is inspired by BI Phakathi (Youtuber)
+  
      
-==============================================================================================================*/
+================================================================================================================================*/
