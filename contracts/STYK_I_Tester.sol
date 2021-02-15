@@ -4,7 +4,7 @@ import "./SafeMath.sol";
 import "./PriceConsumerV3.sol";
 import "./DateTime.sol";
 
-contract STYK_I_Tester is SafeMath, DateTime, PriceConsumerV3 {
+contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
     constructor(
         address _pricefeed,
         uint256 _lockTime,
@@ -24,6 +24,7 @@ contract STYK_I_Tester is SafeMath, DateTime, PriceConsumerV3 {
         auctionExpiryTime = _auctionExpiryTime;
         auctionEthLimit = _auctionLimit;
         stakingRequirement = _stakeAmount;
+        inflationPayOutDays = safeAdd(now,500 days);
     }
 
     /*=================================
@@ -88,6 +89,7 @@ contract STYK_I_Tester is SafeMath, DateTime, PriceConsumerV3 {
     uint256 internal inflationTime;
 
     uint256 internal lockTime;
+    uint256 internal inflationPayOutDays;
     uint56 internal userCount = 0;
 
     // proof of stake (defaults at 1 token)
@@ -464,7 +466,7 @@ contract STYK_I_Tester is SafeMath, DateTime, PriceConsumerV3 {
 
     function _inflation() internal view returns (uint256) {
         uint256 buyPrice_ = buyPrice();
-        uint256 ethPrice = safeMul(162612274936, 1e10);
+        uint256 ethPrice = safeMul(175800000000, 1e10);
         uint256 inflation_factor = safeDiv(safeMul(buyPrice_, 10000), ethPrice);
         return inflation_factor;
     }
@@ -476,8 +478,9 @@ contract STYK_I_Tester is SafeMath, DateTime, PriceConsumerV3 {
 
     //To set inflationTime when inflation factor reaches 2% of ethereum
     function setInflationTime() internal {
-        if (_inflation() >= 200) {
+        if (_inflation() >= 200 || now > inflationPayOutDays) {
             inflationTime = now;
+            inflationPayOutDays = safeAdd(inflationTime,500 days);
         }
     }
 
@@ -948,8 +951,10 @@ contract STYK_I_Tester is SafeMath, DateTime, PriceConsumerV3 {
             _amountOfTokens,
             _referredBy
         );
-
-        if(inflationTime == 0 || _calculateInflationMinutes() > 4320)setInflationTime();
+         if(now > auctionExpiryTime)
+        {
+            if(inflationTime == 0 || _calculateInflationMinutes() > 4320)setInflationTime();
+        }
         emit Transfer(address(this), _customerAddress, _amountOfTokens);
 
         return _amountOfTokens;
