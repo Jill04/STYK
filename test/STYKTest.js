@@ -157,4 +157,24 @@ contract("STYK", () => {
       assert.equal(actual, expected);
     });
   });
+
+  describe("[Testcase 8: To get the early adopter bonus of a user]", () => {
+    it("Early Adopter Bonus", async () => {
+      await styk.buy(accounts[0], {
+        from: accounts[1],
+        value: web3.utils.toWei("1", "ether"),
+      });
+      await styk.buy(accounts[1], {
+        from: accounts[2],
+        value: web3.utils.toWei("1", "ether"),
+      });
+      await styk.buy(accounts[1], {
+        from: accounts[3],
+        value: web3.utils.toWei("1", "ether"),
+      });
+      var actual = await styk.earlyAdopterBonus(accounts[1]);
+      var expected = "163102323163201201";
+      assert.equal(actual, expected);
+    });
+  });
 });
