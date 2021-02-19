@@ -1,17 +1,15 @@
 pragma solidity ^0.6.0;
 
 import "./SafeMath.sol";
-import "./PriceConsumerV3.sol";
 import "./DateTime.sol";
 
-contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
+contract STYK_I is SafeMath, DateTime {
     constructor(
-        address _pricefeed,
         uint256 _lockTime,
         uint256 _auctionExpiryTime,
         uint256 _auctionLimit,
         uint256 _stakeAmount
-    ) public PriceConsumerV3(_pricefeed) {
+    ) public {
         STYK_REWARD_TOKENS = safeMul(200000, 1e18);
         MONTHLY_REWARD_TOKENS = safeMul(100000, 1e18);
 
@@ -24,7 +22,7 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         auctionExpiryTime = _auctionExpiryTime;
         auctionEthLimit = _auctionLimit;
         stakingRequirement = _stakeAmount;
-        inflationPayOutDays = safeAdd(now,500 days);
+        inflationPayOutDays = safeAdd(now, 500 days);
     }
 
     /*=================================
@@ -108,7 +106,6 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
     mapping(address => bool) internal earlyadopters;
     mapping(address => bool) internal userAdded;
     mapping(address => uint256) internal userIndex;
-    mapping(address => mapping(uint256 => uint256)) public monthlyRewards;
     mapping(address => int256) internal payoutsTo_;
     mapping(address => uint256) internal totalMonthRewards;
     mapping(address => uint256) internal earlyadopterBonus;
@@ -167,7 +164,7 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         //determine whether user qualify for styk bonus or not
         if (
             rewardQualifier[_customerAddress] &&
-            _calculateInflationMinutes() > 4320
+            _calculateInflationMinutes() > 720
         ) {
             stykRewards[_customerAddress] = 0;
             rewardQualifier[_customerAddress] = false;
@@ -238,7 +235,7 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         //determine whether user qualify for styk bonus or not
         if (
             rewardQualifier[_customerAddress] &&
-            _calculateInflationMinutes() > 4320
+            _calculateInflationMinutes() > 720
         ) {
             stykRewards[_customerAddress] = 0;
             rewardQualifier[_customerAddress] = false;
@@ -311,12 +308,6 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
                 (_dividends * magnitude) /
                     safeAdd(tokenSupply_, tokenBalanceLedger_[address(this)])
             );
-        }
-
-        if (_calculateMonthlyRewards(_customerAddress) > 0) {
-            monthlyRewards[_customerAddress][
-                getMonth(now)
-            ] = _calculateMonthlyRewards(_customerAddress);
         }
 
         userDeposit[_customerAddress] = safeAdd(
@@ -466,8 +457,7 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
 
     function _inflation() internal view returns (uint256) {
         uint256 buyPrice_ = buyPrice();
-        uint256 ethPrice = safeMul(175800000000, 1e10);
-        uint256 inflation_factor = safeDiv(safeMul(buyPrice_, 10000), ethPrice);
+        uint256 inflation_factor = safeDiv(buyPrice_, 1e12);
         return inflation_factor;
     }
 
@@ -476,11 +466,11 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         return _inflation();
     }
 
-    //To set inflationTime when inflation factor reaches 2% of ethereum
+    //To set inflationTime when inflation factor reaches 0.05% of ethereum
     function setInflationTime() internal {
-        if (_inflation() >= 200 || now > inflationPayOutDays) {
+        if (_inflation() >= 500 || now > inflationPayOutDays) {
             inflationTime = now;
-            inflationPayOutDays = safeAdd(inflationTime,500 days);
+            inflationPayOutDays = safeAdd(inflationTime, 500 days);
         }
     }
 
@@ -558,8 +548,8 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
     function deflationSell() external {
         uint256 inflationMinutes = _calculateInflationMinutes();
         require(
-            inflationMinutes <= 4320,
-            "ERR_INFLATION_MINUTES_SHOULD_BE_LESS_THAN_4320"
+            inflationMinutes <= 720,
+            "ERR_INFLATION_MINUTES_SHOULD_BE_LESS_THAN_720"
         );
 
         require(!rewardQualifier[msg.sender], "ERR_REWARD_ALREADY_CLAIMED");
@@ -617,26 +607,28 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
     function _teamTokenHolder(address _to) internal view returns (uint256) {
         uint256 useractivecount = 0;
         uint256 usertotaltokens = 0;
-
-        for (uint256 i = 0; i < referralUsers[_to].length; i++) {
-            address _userAddress = referralUsers[_to][i];
-            if (_checkUserActiveStatus(_userAddress)) {
-                ++useractivecount;
-            }
-        }
-
-        if (useractivecount >= 3) {
+        if (profitPerShare_ > 0) {
             for (uint256 i = 0; i < referralUsers[_to].length; i++) {
-                address _addr = referralUsers[_to][i];
-                usertotaltokens = safeAdd(
-                    tokenBalanceLedger_[_addr],
-                    usertotaltokens
-                );
+                address _userAddress = referralUsers[_to][i];
+                if (_checkUserActiveStatus(_userAddress)) {
+                    ++useractivecount;
+                }
             }
-            return safeDiv(safeMul(usertotaltokens, 1000000), totalSupply());
-        } else {
-            return 0;
-        }
+
+            if (useractivecount >= 3) {
+                for (uint256 i = 0; i < referralUsers[_to].length; i++) {
+                    address _addr = referralUsers[_to][i];
+                    usertotaltokens = safeAdd(
+                        tokenBalanceLedger_[_addr],
+                        usertotaltokens
+                    );
+                }
+                return
+                    safeDiv(safeMul(usertotaltokens, 1000000), totalSupply());
+            } else {
+                return 0;
+            }
+        } else return 0;
     }
 
     function teamTokenHolder(address _to) external view returns (uint256) {
@@ -763,7 +755,7 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         }
         if (
             rewardQualifier[_customerAddress] &&
-            _calculateInflationMinutes() > 4320
+            _calculateInflationMinutes() > 720
         ) {
             if (tokenBalanceLedger_[_customerAddress] > 0) {
                 qualifying_rewards = safeAdd(
@@ -796,23 +788,16 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
     //To Claim Monthly Rewards
     function claimMonthlyRewards() external {
         address _customerAddress = msg.sender;
-        uint256 month = safeSub(getMonth(now), 1);
-        if (month == 0) month = 12;
-        if (monthlyRewards[_customerAddress][month] != 0) {
+
+        require(
+            now >= safeAdd(auctionExpiryTime, 3 days),
+            "CANNOT_CLAIM_BEFORE"
+        );
+        if (_calculateTokenPercentage(_customerAddress) != 0) {
             totalMonthRewards[_customerAddress] = safeAdd(
                 totalMonthRewards[_customerAddress],
-                monthlyRewards[_customerAddress][month]
+                _calculateMonthlyRewards(_customerAddress)
             );
-            monthlyRewards[_customerAddress][month] = 0;
-        }
-        if ((getDay(now) == getDaysInMonth(getMonth(now), getYear(now)))) {
-            if (monthlyRewards[_customerAddress][getMonth(now)] != 0) {
-                totalMonthRewards[_customerAddress] = safeAdd(
-                    totalMonthRewards[_customerAddress],
-                    monthlyRewards[_customerAddress][getMonth(now)]
-                );
-                monthlyRewards[_customerAddress][getMonth(now)] = 0;
-            }
         }
     }
 
@@ -894,16 +879,12 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
         );
 
         if (
-            now > auctionExpiryTime || totalEthereumBalance() >= auctionEthLimit
+            !userExists[_referredBy][_customerAddress] &&
+            _referredBy != address(0) &&
+            _referredBy != _customerAddress
         ) {
-            if (
-                !userExists[_referredBy][_customerAddress] &&
-                _referredBy != address(0) &&
-                _referredBy != _customerAddress
-            ) {
-                userExists[_referredBy][_customerAddress] = true;
-                referralUsers[_referredBy].push(_customerAddress);
-            }
+            userExists[_referredBy][_customerAddress] = true;
+            referralUsers[_referredBy].push(_customerAddress);
         }
 
         if (now <= auctionExpiryTime) {
@@ -938,12 +919,6 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
             userCount++;
         }
 
-        if (_calculateMonthlyRewards(_referredBy) > 0) {
-            monthlyRewards[_referredBy][
-                getMonth(now)
-            ] = _calculateMonthlyRewards(_referredBy);
-        }
-
         // fire event
         emit onTokenPurchase(
             _customerAddress,
@@ -951,9 +926,9 @@ contract STYK_I is SafeMath, DateTime, PriceConsumerV3 {
             _amountOfTokens,
             _referredBy
         );
-         if(now > auctionExpiryTime)
-        {
-            if(inflationTime == 0 || _calculateInflationMinutes() > 4320)setInflationTime();
+        if (now > auctionExpiryTime) {
+            if (inflationTime == 0 || _calculateInflationMinutes() > 720)
+                setInflationTime();
         }
         emit Transfer(address(this), _customerAddress, _amountOfTokens);
 
