@@ -3,7 +3,7 @@ pragma solidity ^0.6.0;
 import "./SafeMath.sol";
 import "./DateTime.sol";
 
-contract STYK_I is SafeMath, DateTime {
+contract STYK_I_Tester is SafeMath, DateTime {
     constructor(
         uint256 _lockTime,
         uint256 _auctionExpiryTime,
