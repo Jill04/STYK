@@ -7,7 +7,7 @@ const {
 
 const truffleAssert = require("truffle-assertions");
 const { assert, expect } = require("chai");
-const STYK = artifacts.require("STYK_I_Tester");
+const STYK = artifacts.require("STYK_I");
 
 const denominator = new BN(10).pow(new BN(15));
 
@@ -25,11 +25,10 @@ contract("STYK", () => {
   });
   beforeEach(async function () {
     styk = await STYK.new(
-      "0x9326BFA02ADD2366b30bacB125260Af641031331",
       4796668740,
       1614556740,
-      web3.utils.toWei("10000000000000000000000", "ether"),
-      web3.utils.toWei("1000000000000000000", "ether")
+      web3.utils.toWei("10000", "ether"),
+      web3.utils.toWei("1", "ether")
     );
     accounts = await web3.eth.getAccounts();
   });
@@ -61,13 +60,10 @@ contract("STYK", () => {
         from: accounts[4],
         value: web3.utils.toWei("2", "ether"),
       });
-      try{
+      try {
         await styk.sell(getWith15Decimals(9), { from: accounts[2] });
-      }
-      catch(error){
-
-      }
-     });
+      } catch (error) {}
+    });
   });
 
   describe("[Testcase 3: To reinvest]", () => {
@@ -111,7 +107,7 @@ contract("STYK", () => {
         value: web3.utils.toWei("1", "ether"),
       });
       var actual = await styk.totalDividends(accounts[1]);
-      var expected = "8480759890835026";
+      var expected = "56379202109853480";
       assert.equal(actual, expected);
     });
   });
@@ -173,7 +169,7 @@ contract("STYK", () => {
         value: web3.utils.toWei("1", "ether"),
       });
       var actual = await styk.earlyAdopterBonus(accounts[1]);
-      var expected = "163102323163201201";
+      var expected = "109175101870594300";
       assert.equal(actual, expected);
     });
   });
